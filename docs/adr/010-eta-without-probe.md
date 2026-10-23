@@ -1,6 +1,6 @@
 # 010: ETA only from reliable sources; otherwise indeterminate progress
-- Status: proposed, **provisional** (2026-10-23). The T002 spike tested only one probe variant (random child over all entries, which stops at the first file). The subfolder-only descent rerun is pending (`docs/tasks/002-report.md`). The Indeterminate state stays as the fallback in any outcome.
-- Context: Spike R3 (`spikes/r3-probe/REPORT.md`) measured the Knuth probe on 3 real roots with 100 seeds each. It is unbiased, but in most seeds it is 2-1000x low ($HOME: 96-98% of seeds <0.5x, median 0.001-0.005), with rare ~84x overshoots. ADR-005's revisit trigger fired. Brief M2 requires a labeled ETA that never shows a made-up number. The user's /home is btrfs (no inode counts), and history is off by default (user decision).
+- Status: accepted (user approved, 2026-10-23)
+- Context: Spike R3 (`spikes/r3-probe/REPORT.md`) measured the Knuth probe on 3 real roots with 100 seeds each. The **variant tested** picks a random child over all entries, so a descent ends at the first file. It is unbiased, but in most seeds it is 2-1000x low ($HOME: 96-98% of seeds <0.5x, median 0.001-0.005), with rare ~84x overshoots. ADR-005's revisit trigger fired. Brief M2 requires a labeled ETA that never shows a made-up number. The user's /home is btrfs (no inode counts), and history is off by default (user decision).
 - Options:
   - Keep the probe, shown as a range or hidden until N%. Rejected: the range spans 2-3 orders of magnitude, and the estimate is usually below `seen` by 50%.
   - A `seen/(seen+pending_dirs)` percentage. Rejected: it is an upper bound on true progress, so it would always look optimistic.
@@ -13,12 +13,10 @@
   - **Simpler build:** one less thread and module.
   - **Path to a real ETA:** the user gets one from `--history`, or from `r` on the root within a session.
 - Blast radius / reversibility: eta (states), the status line (UX copy), T013/T019. Adding a future source is additive behind `EtaSource`.
-- Revisit if: R3b passes (within 0.5-2x from 25% on all three roots), or the user asks for an ETA on first scans enough to accept history on by default.
-- Pending rerun, decision rule:
-  - **Estimator for the subfolder-only variant** (still unbiased, Knuth 1975 applied to the directory tree): along a random path of directories D0 (root), D1, …, Dk, where each D(i+1) is chosen uniformly among the subdirectories of Di, N_hat = sum over d of ( product over i<d of s_i ) * e_d. Here s_i = the subdirectory count of Di, and e_d = the entry count of Dd (files + subdirs). The path ends at a directory with no subdirectories. Average over K probes.
-  - **Usable =** ADR-005's original trigger not firing: within 0.5-2x of truth at 50% progress on all three roots (\$HOME, /usr, node_modules project), in at least 80% of seeds at K=64. Also no overshoot above 5x.
-  - **If usable:**
-    - Reinstate `EtaSource::Probe` (label `rough`) as source 4, after FsInodes.
-    - Show it only while `probe_total > seen + pending_dirs`; otherwise fall back to Indeterminate rather than OverEstimate.
-    - ADR-010 becomes "probe (subfolder variant) + Indeterminate fallback", and T019 keeps its probe criterion with the new estimator.
-  - **If not usable:** this ADR is accepted as written.
+- Measured follow-up (T002 rework, `spikes/r3-probe/REPORT.md`, 2026-10-23):
+  - Variant B (subdirectory descent, X(v) = e(v) + s(v)*X(random child dir)) **fails** the pass rule.
+    - K=256 median estimate/true: $HOME 0.07, /usr 0.35, node_modules project 0.63.
+    - Better than variant A, but still far below 0.5-2x in most seeds on the user's real home.
+  - Shallow-first `seen + pending_dirs`, simulated, is only a lower bound. It reaches 0.12 / 0.51 / 0.90 of the true total at 10 / 50 / 90 % on $HOME, with ETA error -0.92 to -0.99. That confirms it is unusable as a percentage or ETA, and it stays only as the guard and as the `≥ N folders queued` display.
+  - **R3b is closed, not pursued.** The pending-dirs x mean-subtree estimator was not run directly. The BFS simulation shows pending folders hold most of the remaining work, and under shallow-first the completed subtrees that set the mean are the small ones, so the estimate would run low the same way. No v1 work.
+- Revisit if: a new estimator (not variants A or B) is proposed and passes the same rule on the same three roots: within 0.5-2x at 50 % in ≥ 80 % of seeds at K=64, with no seed above 5x. Also revisit if the user wants a first-scan ETA enough to accept history on by default.

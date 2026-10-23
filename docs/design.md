@@ -2,7 +2,14 @@
 
 > **Name placeholder:** the command name is TBD. Docs use `<cmd>` for the command and `<app-id>` for directory names. Code MUST NOT hardcode it: one constant `APP_ID` (used for XDG paths and config) and the binary name taken from Cargo (`env!("CARGO_BIN_NAME")`) for messages. Renaming then means changing `Cargo.toml` + `APP_ID` only.
 
-Status: **accepted** (§3.6 provisional), rev 7, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
+Status: **accepted**, rev 9, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
+
+Rev 9 (2026-10-23): T002 rework recorded. Variant B fails, R3b is closed, and there is no probe in v1.
+
+Rev 8 (2026-10-23):
+- The user approved ADR-010.
+- The probe finding is scoped to the variant tested.
+- The §3.6 table is made consistent: `Estimating` needs a source; with no source the state is `Indeterminate` from the start.
 
 Rev 7 (2026-10-23): spike R3 failed, so the Knuth probe is removed. The ETA now comes from history (opt-in), an in-session previous scan, or the inode count; otherwise an honest `Indeterminate` progress state (§3.6, ADR-010). `ProbeMsg` and the probe thread are removed (plan D9 retracted).
 
@@ -203,8 +210,7 @@ Indexes, all updated in `apply`:
 
 ### 3.6 ETA (ADR-005)
 - **Work unit:** entries (directory entries `statx`'d), not bytes. Scan cost is per-entry syscalls. Bytes only proxy for time (**assumption**, checked by spike R3).
-- **PROVISIONAL (rev 7):** the R3 verdict covers only the all-entries probe variant. The subfolder-only descent rerun is pending. The decision rule and estimator are in ADR-010. If the rerun is usable, the probe returns as source 4 (`rough`), and Indeterminate remains the fallback.
-- **Spike R3 result (fact, `spikes/r3-probe/REPORT.md`):** the Knuth probe is unbiased but unusable on real trees.
+- **Spike R3 result (fact, `spikes/r3-probe/REPORT.md`):** the probe variant tested is unbiased but unusable on real trees. In that variant, each step picks a random child over *all* entries, so a descent stops at the first file it picks. A subdirectory-descent variant (B) was measured afterwards and also fails (K=256 median ratio 0.07 on $HOME). There is no probe in v1 (ADR-010).
   - On `$HOME` (19.46 M entries), 96–98 % of seeds are below 0.5× the truth; the median ratio is 0.001–0.005.
   - On `/usr` and a node_modules project, 72–92 % of seeds are below 0.5×, with rare overshoots of about 84× in ETA error.
   - The ADR-005 revisit trigger fired. **The probe is removed** (ADR-010 supersedes ADR-005's source list).
@@ -235,16 +241,16 @@ Indexes, all updated in `apply`:
   - the ETA field reads `ETA unknown (no estimate on first scan)`.
 - **Not adopted:**
   - A `seen / (seen + pending_dirs)` percentage. It is an *upper* bound on true progress, so it would always look further along than reality, and it is untested.
-  - A pending-dirs × mean-subtree estimator. Under shallow-first scheduling, the subtrees that complete first are the small ones, which biases it low, the same failure mode as the probe. An optional spike R3b (below) can test it with the R3 harness; it does not block v1.
+  - A pending-dirs × mean-subtree estimator. Under shallow-first scheduling, the subtrees that complete first are the small ones, which biases it low, the same failure mode as the probe. R3b is closed: not pursued (ADR-010).
 
 Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The status text belongs to UX (`ux/spec.md` §5.2). The source label is appended:
 
 | State | Condition | Example (wording is UX's) |
 |---|---|---|
-| `Estimating` | a source exists but elapsed < 2 s or the rate is not settled | `ETA estimating…` |
+| `Estimating` | **a source exists** but elapsed < 2 s or the rate is not settled | `ETA estimating…` |
 | `Eta { remaining, fraction, source }` | a source exists and the rate is settled | `[bar] ~41%  ETA ~01:44 (estimate, last scan)` / `(estimate, filesystem)` |
 | `OverEstimate` | seen ≥ source_total × 1.02 | `~99%  ETA unknown (past estimate)` |
-| `Indeterminate { rate_eps, pending_dirs, top_done, top_total }` | no source (after the first 2 s; before that, `Estimating`) | `◌ 01:12 · 1.24M entries · 41k/s · ≥12.4k folders queued · 12/31 top-level done · ETA unknown (no estimate on first scan)` |
+| `Indeterminate { rate_eps, pending_dirs, top_done, top_total }` | no source (from frame 0; `Estimating` is never used without a source) | `◌ 01:12 · 1.24M entries · 41k/s · ≥12.4k folders queued · 12/31 top-level done · ETA unknown (no estimate on first scan)` |
 | `Done { elapsed }` | `ScanMsg::Done` | `✓ Done in 03:51 …` (ETA 00:00) |
 | `Stopped { elapsed }` | cancelled | `■ Stopped at 01:12 · partial results` |
 
@@ -556,7 +562,7 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 | R1 | Memory per entry exceeds budget at real scale. **Note:** R3 measured 19.46 M entries in the user's `$HOME`, so about 2.3 GB at 120 B/entry | Fill the arena with **20 M** synthetic nodes (realistic name lengths), measure RSS. About half a day |
 | R2 | Main-thread apply can't keep up (backlog, slow scan) or the top-N recompute is too slow | Walker + apply headless on `/usr` and `$HOME`. Log produce vs apply rate and per-tick apply time |
 | R3 | ~~Knuth probe ETA too noisy~~ **Retired: failed** (`spikes/r3-probe/REPORT.md`); probe removed, ADR-010 | — |
-| R3b (optional) | Could a pending-dirs-based estimator give a usable first-scan ETA? | Extend the R3 harness: simulate a shallow-first order on the same three roots and log `seen + pending_dirs × mean completed-subtree size` vs truth at 25/50/90 %. Adopt only if it is within 0.5–2× from 25 % on all three. Does not block v1 |
+| R3b | ~~Pending-dirs-based estimator~~ **Closed, not pursued.** Variant B also failed (K=256 medians 0.07 / 0.35 / 0.63). `seen + pending_dirs` is only a lower bound (0.12 / 0.51 / 0.90 of truth on $HOME). See ADR-010 | — |
 | R4 | btrfs specifics: subvolume `st_dev`, `-x` semantics, `du` parity on compressed files | Run `du -sx` vs `du -s` on `$HOME`. Compare to walker totals |
 | R5 | Treemap jitter during live scan is distracting | Record a scan's `ScanMsg` stream, replay it into the treemap at 2 Hz, eyeball it. Fallback: ordered treemap |
 | R6 | Delete edge cases (hard links, mounts, deep trees) | Covered by §4 tests. Check that `unshare -rm` works on CachyOS for the mount test |
