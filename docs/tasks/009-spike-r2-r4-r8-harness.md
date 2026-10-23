@@ -39,3 +39,5 @@ Tuning or fixing what it finds. Findings go to Heimdall, who routes them to the 
 
 ## Amendment (2026-10-23, from the T006 review)
 Also report **worker CPU time while the channel is full** (`/proc/self/task/*/stat` utime + stime for the `scan-*` threads during a deliberately slow apply). The walker polls with `try_send` every 500 µs. If the CPU cost is material, recommend a backoff.
+
+Also time `Model::category_of_node` for the ≤ 60 largest children of the root and of the largest top-level dir, every 500 ms during the scan (the T005 review). Report p50/p95.

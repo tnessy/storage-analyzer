@@ -83,3 +83,8 @@ The rule lives in **one place, the model**, and T020 only executes it:
 **Reconciled with UX §4 F5 / §11 (2026-10-23):**
 - **"Still being scanned" means `state() == Scanning && !is_complete(id)`.** After `s` (Stopped), unread folders stay `!is_complete`, but nothing is scanning them, so `rescan_plan` returns **`Full`**. The same holds after Done. Add the test: stop the scan, then `rescan_plan(unfinished folder) == Full`.
 - **Root while scanning:** `rescan_plan(root)` returns a third variant, **`RescanPlan::NoneWhileScanning`**. UX says nothing changes; the app shows `Scan in progress. Press s to stop, then r to rescan.` Add the test.
+
+## Note from the T005 review
+- `recompute_top()` rebuilds only the top lists. **Subtracting ext totals for removed nodes is your job:** add a small `Indexes::remove(name, disk, apparent)`, and use it in `remove_subtree`, which T011 reuses.
+- `Identity` changing a file's size: the top lists may hold a stale entry, so call `recompute_top()`, or re-offer the node. Test it.
+- Prune `dir_categories` entries for nodes that become `REMOVED`.

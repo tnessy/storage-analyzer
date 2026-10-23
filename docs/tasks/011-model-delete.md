@@ -64,3 +64,6 @@ Commands: `cargo test --test delete_model`. To print the timing: `cargo test --r
 
 ## Out of scope
 Dialogs and key handling (T021). Executor internals (T010).
+
+## Note from the T005 review
+`recompute_top()` does not touch ext totals. `Removed` must subtract the ext totals of the removed files, through T012's `remove_subtree` and `Indexes::remove`. A re-charged hard link must be added back to the ext totals and the top lists.
