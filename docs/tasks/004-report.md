@@ -15,3 +15,8 @@ Fresh: fmt ok, clippy -D warnings clean, `cargo test --all-targets` pass (49 uni
 - Cap: a job is "over cap" when queued jobs `>= cap` at push time. Over-cap jobs sort after all in-cap jobs (deepest-first, FIFO), but focus still wins over both.
 - Any `ScanControl` mutation (including cancel/skip) bumps the generation and triggers one O(pending) re-key.
 - `max_pending()` is the high-water mark of *queued* jobs (not in-progress).
+
+## Review fixes (2026-10-23)
+- Added `drain_queued() -> usize` (empties the heap, subtracts from pending). Red first: test panicked on a `todo!` stub.
+- Re-key now only when the focus value changed (generation is still recorded). Red first: `only_a_focus_change_rekeys_not_skips_or_cancel_all` failed. `rekey_count` therefore counts focus changes only.
+- `done()` uses `debug_assert!(pending > 0)` instead of saturating.

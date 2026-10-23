@@ -14,3 +14,11 @@
 2. `done()` uses `saturating_sub`, which hides a double `done()`. Use `debug_assert!(pending > 0)`.
 
 Everything else is clean and readable.
+
+## Re-review 2026-10-23: APPROVED, committed
+- **Fresh run:** 11 queue tests pass in debug and in release with `--test-threads=1`.
+- **Verified in code:**
+  - `drain_queued()` empties the heap and subtracts from `pending`;
+  - `refresh` records the generation but rebuilds only when the focus value changed;
+  - `done()` has `debug_assert!(pending > 0)`.
+- The new tests were reported failing first.

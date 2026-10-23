@@ -3,6 +3,7 @@
 pub mod control;
 pub mod fs;
 pub mod msg;
+pub mod queue;
 
 use std::path::PathBuf;
 use std::sync::Arc;
