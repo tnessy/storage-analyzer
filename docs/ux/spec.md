@@ -155,12 +155,17 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 - `r` resumes a skipped folder, or rescans any folder (design §3.5 subtree rescan). The row goes back to `◌` and the `≥` clears when it completes.
   - **`r` on a folder that is still being scanned** (the scan is running and the folder still has pending work) **does not restart it. It acts as `p`.** The scan is already reading fresh data, so restarting would only repeat disk reads and delay Done. The user's likely intent, "get me current numbers for this folder soon", is best met by moving it to the front.
     - The folder becomes the priority folder: `▲` on its row and `▲ First:` in the status line.
-    - Message: `Still scanning .cache/: moved it to the front instead of restarting.`
+    - **Skipped folders inside are resumed too.** The outermost skipped folders under it go from `⊘` to `◌` and are scanned (prioritised along with the folder). Skips nested inside those are cleared by their own rescan (design D2), so they don't show `⊘` again.
+    - Message, when nothing inside was skipped: `Still scanning .cache/: moved it to the front instead of restarting.`
+    - Message, when skipped folders were resumed: `Still scanning .cache/: moved it to the front and resumed 2 skipped folders inside.` The number counts the outermost skipped folders only. Use `1 skipped folder` for one.
     - If it is already the priority folder: `Already scanning .cache/ first.` Nothing changes, and `r` never toggles the priority off (only `p` does).
   - **`r` on the scan root while the scan is running:** nothing changes. Message: `Scan in progress. Press s to stop, then r to rescan.`
   - **`r` on a folder with no pending work runs a real rescan.** That covers folders that are complete, complete but marked `≥` because of an inner skip, or left unfinished after `s` (Stopped).
   - This UX holds whichever mechanism the architect picks for O7, because no user-visible restart happens while the folder is still being scanned.
 - `s` stops the whole scan: `■ Stopped at 01:12 · partial results`. Unfinished rows keep `◌`. `r` on the root starts a full rescan.
+  - **Between `s` and the stop completing** (until `Done { cancelled }` arrives), the status line shows `■ Stopping…  01:12 elapsed`. Elapsed is frozen at the moment `s` was pressed, and there is no ETA.
+  - During `Stopping…`, `r`, `p` and `x` do nothing and show `Still stopping the scan. Try again when it says Stopped.` The key is not queued, so nothing starts later by surprise. Navigation, views, `d` and quit work as normal.
+  - A second `s` during `Stopping…` does nothing.
 - `p`, `x` and `r` do nothing on files or aggregate rows. The status line says `p, x and r work on folders.`
 
 **F6 Quit (T6, M12).** `q` or `Ctrl-C` always opens the quit dialog (§5.3); the first press never exits.
@@ -195,6 +200,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 | Done | `✓ Done in 03:51 · 1,204,331 files · 182.9 GiB · 3 skipped (press 4)`. ETA is 00:00. |
 | Done with skips by you | `✓ Done in 03:51 · … · sizes marked ≥ are partial` |
 | Other filesystems not scanned (plan D4) | Appended to any state when ≥1 `OtherFilesystem` issue exists and `--cross-filesystems` is off: ` · not scanned (other fs): /home`. With several, it names the shallowest path and adds a count: ` · not scanned (other fs): /home +2`. When space is short, drop the bar first, then use ` · 3 other fs not scanned`. The full list is in `4 Skipped`. |
+| Stopping (after `s`, before `Done { cancelled }`) | `■ Stopping…  01:12 elapsed` |
 | Stopped | `■ Stopped at 01:12 · partial results · r on the root rescans` |
 | Deleting (exact) | `Deleting /home/nss/.cache/yay … 12,400 / 48,212 files` |
 | Deleting (unfinished) | `Deleting /home/nss/.cache/yay … 12,400 files removed` |
@@ -355,7 +361,8 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | Key not applicable | `p, x and r work on folders.` / `Nothing to delete here.` |
 | `x` on a folder already fully scanned (plan D6) | `Already fully scanned.` |
 | `x` on a folder already skipped | `Already skipped. r resumes.` |
-| `r` on a folder still being scanned (plan O7) | `Still scanning .cache/: moved it to the front instead of restarting.` |
+| `r` on a folder still being scanned (plan O7) | `Still scanning .cache/: moved it to the front instead of restarting.` / `… moved it to the front and resumed N skipped folders inside.` |
+| `r`, `p` or `x` while stopping | `Still stopping the scan. Try again when it says Stopped.` |
 | `r` on the current priority folder, still scanning | `Already scanning .cache/ first.` |
 | `r` on the root while scanning | `Scan in progress. Press s to stop, then r to rescan.` |
 
@@ -528,6 +535,8 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
    - **`r` on a still-scanning, non-root folder** sets focus to it and starts no new jobs for it: the count of queued jobs for that path doesn't rise. It shows the §5.4 message. A second `r` leaves focus set.
    - **`r` on the root while scanning** changes nothing.
    - **`r` after Done or Stopped** starts a subtree rescan.
+   - **`r` on a still-scanning folder that contains two outermost skipped folders and one nested skip:** both outer folders show `◌` and are scanned, the message says `resumed 2 skipped folders`, and after completion no `⊘` remains anywhere in that subtree.
+   - **Keys after `s`, before `Done { cancelled }`:** the status line contains `Stopping…`. `r`, `p` and `x` produce the stopping message and change no `ScanControl` state. Once Stopped, `r` works.
 10. **`x`:** the row shows `⊘`, `(scan skipped)` and a `≥` size, and every ancestor shows `≥`. After `r` and completion, all of those marks clear.
 11. **Label truncation:** with a 200-character name and a name containing ESC, the row stays within its width and no raw control byte reaches the buffer.
 12. **Key hints** at 80 columns always contain `? help`.

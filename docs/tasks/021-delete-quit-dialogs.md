@@ -104,3 +104,10 @@ The **"interrupted: N of M" numbers come from the last `Progress` received, or t
 ## Amendment (2026-10-23, architect's T010 second review + T015 review)
 - **Gate deletes in the model, not on the executor's `Busy`:** `busy` clears just before `Finished` is sent. Use `Model::delete_refusal` (`DELETING`/`TOMBSTONE`, `DeleteRunning`) as the one-delete-at-a-time gate. Treat `submit` → `Busy` only as an unexpected-state fallback (status message, no crash).
 - **Caught executor panic:** `Finished(Partial { failures: [target, Other(EIO)] })` opens the normal result dialog. Also show the stored panic message from `PanicSlot` (thread `delete`) as one extra line in that dialog. Note: T015's `check_scan_health` currently `take()`s the whole slot and drops non-scan entries. Change it so `delete`-thread entries are kept for this dialog. Test: an injected executor panic → the result dialog with that line, and the scan is not stopped.
+
+## Amendment (2026-10-23, from T020 rev 2)
+**The D1 reconciliation rescan (after `Partial` or `Aborted`) goes through `app::rescan`.** While the app is **Stopping** (see T020), it is queued and runs right after `Done { cancelled: true }` is applied; it is never dropped.
+
+**Delete stays allowed while Stopping** (UX §11 check 9).
+
+**Test:** a delete finishing `Partial` during Stopping → its rescan starts only after `Done`, exactly once.
