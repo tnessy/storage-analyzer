@@ -441,6 +441,11 @@ enum ScanMsg {
     Listing { dir: NodeId, first_id: NodeId, entries: Vec<RawEntry> },
     DirIssue { dir: NodeId, op: Op, kind: IssueKind },   // counts as "listed" for pending_dirs
     Cancelled { dir: NodeId },                           // job dropped by ScanControl (skip or delete)
+    Identity { node: NodeId, entry: RawEntry },          // plan D11: rescan root re-statx'd (NOFOLLOW) before its Listing.
+                                                         // Carries kind + sizes: if the target is no longer a dir
+                                                         // (ENOTDIR/ELOOP on open), the walker sends Identity only (no
+                                                         // Listing), and the model turns the node into a leaf. ENOENT →
+                                                         // DirIssue(Vanished) → node removed when it is the rescan root.
     Done { cancelled: bool },
 }
 enum IssueKind { PermissionDenied, Vanished, OtherFilesystem, SkippedByUser, Other(i32 /*errno*/) }
