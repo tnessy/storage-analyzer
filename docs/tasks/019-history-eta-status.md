@@ -2,7 +2,13 @@
 
 - **Engineer:** engineer-2. **Wave:** 2. **Depends on:** T013, T015, T003 (`top_level_progress`).
 - **Rev 2 (2026-10-23):** rewritten for ADR-010 / design rev 7 §3.6. The probe is removed. Renamed from `019-probe-history-eta-status.md`.
-- **Copy dependency:** UX is updating `ux/spec.md` §5.2 for the indeterminate state. **All status text comes from the updated spec.** If the spec isn't updated when you reach the text work, ask Heimdall; don't invent copy. The examples below are the design's, for orientation only.
+- **Copy: unblocked (2026-10-23).** UX updated `ux/spec.md` §5.2. **The spec is the source of truth for all status text, including the Indeterminate fields, their formats and the 80-column drop order.** The design's examples in criterion 3 are superseded wherever they differ. Known differences: `K of M top-level done` (shortens to `K/M`), a bytes-seen field, and `ETA unknown (no previous scan)`.
+- **One open conflict, with a provisional rule:** §5.2's Starting row (`ETA estimating…` for the first 2 s) contradicts the accepted rule that `Estimating` needs a source (design §3.6 rev 8, T013). Until UX answers (Heimdall has flagged it):
+  - while `ScanState::Starting`, or for elapsed < 2 s, render `◌ Starting…  00:00 elapsed`;
+  - append `  ETA estimating…` **only** if `eta::view` returns `Estimating`;
+  - with no source, append nothing.
+
+  Keep the decision in one place (`status.rs`) so the wording can change cheaply.
 
 ## Goal
 Brief M2 under ADR-010:
@@ -35,7 +41,7 @@ Acceptance criteria:
    - the best available source.
 
    Then call `eta::view`.
-3. **Status text** (from updated UX §5.2; the design's examples are the reference until then):
+3. **Status text** (from `ux/spec.md` §5.2; the examples below are orientation only):
    - **With a source:** `◌ Scanning [bar] ~41%  01:12 elapsed  ETA ~01:44 (estimate, last scan)`. The labels are `last scan` (History and SessionPrevious) and `filesystem` (FsInodes). Estimating → `ETA estimating…`; OverEstimate → `~99% … ETA unknown (past estimate)`.
    - **Indeterminate:** `◌ 01:12 · 1.24M entries · 41k/s · ≥12.4k folders queued · 12/31 top-level done · ETA unknown (no estimate on first scan)`.
      - No bar and no `%` ever appear.
@@ -65,6 +71,8 @@ Acceptance criteria:
   - with no source, the text never contains `%` or an ETA time;
   - it contains the entries seen, `≥N folders queued` equal to `pending_dirs`, and `K/M top-level done` matching the model;
   - it ends with the "ETA unknown" copy.
+- **80-column drop order:** at 80 columns with no prefix, the Indeterminate line equals the spec's 79-column example. Each drop step happens in the spec's order, so test widths that trigger each step. The state glyph and word, elapsed, and `ETA unknown` are never dropped.
+- **No-bar rule (spec §11):** in `Indeterminate`, the status line has no `%`, none of the bar glyphs `█▉▊▋▌▍▎▏░`, and no ETA digits. The text after `ETA` matches `^ETA unknown` at 80, 120 and 200 columns.
 - **UX §11 check 4** (as updated by UX):
   - no digits after `ETA` unless there is a source;
   - `~` and `estimate` are present whenever a number is shown;
