@@ -15,3 +15,8 @@
 2. **Skipping `#[cfg(test)] mod … { … }` blocks:** **accepted in principle**, because test modules don't ship. **But the implementation can hide production code.** For `#[cfg(test)] mod tests;` (a file module, no brace), `strip_test_modules` takes the *next* `{` anywhere after `mod`, and deletes the following production item. I verified it: a planted `src/scan/zz_probe.rs` containing `#[cfg(test)]\nmod tests;\n\npub fn evil(p) { std::fs::remove_file(p) }` **passes** `repo_sources_pass`.
    - **Fix:** strip only when the tokens are exactly `mod <ident> {` (optionally preceded by `pub`). A `mod <ident>;` is left alone.
    - **Tests, red first:** (a) the planted case above is flagged; (b) `#[cfg(test)] mod t { fn f() { std::fs::write(..) } }` passes; (c) a violation right after a stripped test module is still flagged.
+
+## Follow-up re-review (2026-10-23): APPROVED, committed
+- `write_guard` 16 pass.
+- My planted bypass (`#[cfg(test)] mod tests;` followed by a `remove_file` function) is now **flagged**.
+- An inline `#[cfg(test)] mod t { … std::fs::write … }` passes, as intended.

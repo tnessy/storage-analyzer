@@ -18,3 +18,11 @@ fmt ok; clippy -D warnings clean; `cargo test --all-targets` pass (52 unit, 14 d
 - `copy`, `symlink`, `create_dir` etc. match as whole identifiers (so `Copy` and `copy_from_slice` pass); a local variable named `copy` would be reported.
 - APP_ID exemption: only the line equal to `pub const APP_ID: &str = "<value>";` in `lib.rs`; the same line in another file fails.
 - Header documents the `.write(` false positive in files that mention `OpenOptions`.
+
+## Follow-up (2026-10-23): conflicts with engineer-2's UI code
+`repo_sources_pass` started failing on `ui::copy` (the mandated copy module), `ui/*` `copy::…` paths, and a `std::fs::write` inside a `#[cfg(test)]` module in `src/app/mod.rs`. Fixes in `tests/write_guard.rs`:
+- `copy` is no longer a bare identifier. Like `write`, it is matched as `fs::copy`, as an import from `std::fs`, or as a bare call after `use std::fs::*` (`COMMON_FS_WRITERS`).
+- `#[cfg(test)] mod … { … }` blocks inside `src/` are skipped (they don't ship). Production code next to such a block is still checked. New tests cover both. **Lead: this narrows the brief's guard slightly; say if you want test modules checked too.**
+
+## Round 2 (lead's review)
+`strip_test_modules` now strips only `[pub] mod <ident> { … }`; `mod x;`, and `#[cfg(test)]` on fns/uses, are left checked. Red first: `a_file_module_marked_cfg_test_does_not_hide_the_next_item` failed; plus tests for braces ending the stripped module and for cfg(test) on a plain fn.

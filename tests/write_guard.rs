@@ -25,7 +25,6 @@ const FORBIDDEN_IDENTS: &[&str] = &[
     "set_permissions",
     "create_dir",
     "create_dir_all",
-    "copy",
     "hard_link",
     "soft_link",
     "symlink",
@@ -42,7 +41,11 @@ const FORBIDDEN_IDENTS: &[&str] = &[
     "utimensat",
     "futimens",
 ];
-const FORBIDDEN_PATHS: &[&str] = &["File::create", "File::options", "fs::write"];
+const FORBIDDEN_PATHS: &[&str] = &["File::create", "File::options", "fs::write", "fs::copy"];
+/// `std::fs` functions whose names are everyday words (`ui::copy` is a module here), so
+/// they are matched as `fs::name`, as an import from `std::fs`, or as a bare call
+/// after `use std::fs::*`.
+const COMMON_FS_WRITERS: &[&str] = &["write", "copy"];
 const WRITE_CALLS: &[&str] = &[".write(", ".append(", ".create(", ".create_new("];
 /// Forbidden only in files that mention `OFlags` (they are common words otherwise).
 const WRITE_OFLAGS: &[&str] = &["WRONLY", "RDWR", "CREATE", "TRUNC", "APPEND"];
@@ -58,6 +61,7 @@ fn violations(src_root: &Path) -> Vec<String> {
             continue;
         }
         let code = scrub(&fs::read_to_string(&file).unwrap(), Literals::Blank);
+        let code = strip_test_modules(&code);
         for what in forbidden_in(&code) {
             found.push(format!("{}: {what}", rel.display()));
         }
@@ -99,29 +103,89 @@ fn forbidden_in(code: &str) -> Vec<String> {
             }
         }
     }
-    found.extend(bare_fs_write(&compact));
+    found.extend(bare_fs_writers(&compact));
     found
 }
 
-/// `use std::fs::write` (also inside a `{…}` list), or a glob import of `std::fs`
-/// together with a bare `write(` call.
-fn bare_fs_write(compact: &str) -> Option<String> {
+/// Removes `#[cfg(test)] mod <name> { … }` blocks: test code does not ship and may build
+/// fixtures. `mod <name>;` (a file module) and other cfg(test) items are left alone.
+/// Expects literals and comments to be blanked already, so braces are balanced.
+fn strip_test_modules(code: &str) -> String {
+    let marker = "#[cfg(test)]";
+    let mut out = String::new();
+    let mut rest = code;
+    while let Some(at) = rest.find(marker) {
+        let after = &rest[at + marker.len()..];
+        out.push_str(&rest[..at]);
+        match test_module_body_len(after) {
+            Some(len) => rest = &after[len..],
+            None => {
+                out.push_str(marker);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// If `after` starts with `[pub] mod <ident> {`, the length up to and including the
+/// matching `}`.
+fn test_module_body_len(after: &str) -> Option<usize> {
+    let head = after.trim_start();
+    let head = head.strip_prefix("pub").map_or(head, str::trim_start);
+    let head = head.strip_prefix("mod")?;
+    let named = head.trim_start();
+    if named.len() == head.len() {
+        return None;
+    }
+    let ident_len = named
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(named.len());
+    let brace = named[ident_len..].trim_start();
+    if ident_len == 0 || !brace.starts_with('{') {
+        return None;
+    }
+    let open = after.len() - brace.len();
+    let mut depth = 0;
+    for (i, c) in after.char_indices().skip_while(|&(i, _)| i < open) {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(after.len())
+}
+
+/// Common-word writers (`write`, `copy`) imported from `std::fs`, or a glob import of
+/// `std::fs` together with a bare call.
+fn bare_fs_writers(compact: &str) -> Vec<String> {
+    let mut found = Vec::new();
     for stmt in compact.split(';') {
         let Some(imported) = stmt.split("usestd::fs::").nth(1) else {
             continue;
         };
-        let items = imported.trim_matches(|c| c == '{' || c == '}');
-        if items
+        let items: Vec<&str> = imported
+            .trim_matches(|c| c == '{' || c == '}')
             .split(',')
-            .any(|i| i == "write" || i.starts_with("writeas"))
-        {
-            return Some("use std::fs::write".to_string());
-        }
-        if items.split(',').any(|i| i == "*") && has_bare_call(compact, "write") {
-            return Some("write( via use std::fs::*".to_string());
+            .collect();
+        for name in COMMON_FS_WRITERS {
+            let aliased = format!("{name}as");
+            if items.iter().any(|i| i == name || i.starts_with(&aliased)) {
+                found.push(format!("use std::fs::{name}"));
+            }
+            if items.contains(&"*") && has_bare_call(compact, name) {
+                found.push(format!("{name}( via use std::fs::*"));
+            }
         }
     }
-    None
+    found
 }
 
 fn has_bare_call(compact: &str, name: &str) -> bool {
@@ -229,6 +293,8 @@ fn every_forbidden_form_is_caught() {
             "use std::fs::write",
         ),
         ("use std::fs::*; write(p, d)", "use std::fs::*"),
+        ("use std::fs::copy; copy(a, b)", "use std::fs::copy"),
+        ("use std::fs::*; copy(a, b)", "copy( via use std::fs::*"),
     ];
     for (case, needle) in cases {
         let dir = write_tree(&[("model/x.rs", &format!("fn f() {{ {case}; }}"))]);
@@ -267,6 +333,53 @@ fn unrelated_write_copy_and_create_names_pass() {
          use std::fs::{self, read};",
     )]);
     assert!(violations(dir.path()).is_empty());
+}
+
+#[test]
+fn copy_as_a_module_or_derive_passes() {
+    let dir = write_tree(&[(
+        "ui/x.rs",
+        "use super::copy; fn f() { let _ = copy::STARTING; }",
+    )]);
+    assert!(violations(dir.path()).is_empty());
+}
+
+#[test]
+fn unit_test_modules_may_build_fixtures_but_production_code_may_not() {
+    let test_only = "fn f() {}\n#[cfg(test)]\nmod tests {\n fn t() { std::fs::write(p, d); if x { } std::fs::create_dir(p); }\n}\n";
+    let dir = write_tree(&[("app/x.rs", test_only)]);
+    assert!(violations(dir.path()).is_empty());
+
+    let after = format!("{test_only}fn g() {{ std::fs::remove_file(p); }}");
+    let before = format!("fn g() {{ std::fs::remove_file(p); }}\n{test_only}");
+    for code in [after, before] {
+        let dir = write_tree(&[("app/x.rs", &code)]);
+        assert_eq!(violations(dir.path()).len(), 1, "{code}");
+    }
+}
+
+#[test]
+fn a_file_module_marked_cfg_test_does_not_hide_the_next_item() {
+    let code = "#[cfg(test)]\nmod tests;\n\npub fn evil(p: &Path) { std::fs::remove_file(p); }\n";
+    let dir = write_tree(&[("scan/zz.rs", code)]);
+    assert_eq!(violations(dir.path()).len(), 1);
+}
+
+#[test]
+fn braces_of_a_stripped_test_module_end_where_it_ends() {
+    let code = "#[cfg(test)]\nmod t { fn f() { std::fs::write(p, d); } }\n";
+    let dir = write_tree(&[("scan/a.rs", code)]);
+    assert!(violations(dir.path()).is_empty());
+    let code = "#[cfg(test)]\npub mod t { fn f() { if x { std::fs::write(p, d); } } }\nfn g() { std::fs::rename(a, b); }\n";
+    let dir = write_tree(&[("scan/b.rs", code)]);
+    assert_eq!(violations(dir.path()).len(), 1);
+}
+
+#[test]
+fn cfg_test_on_other_items_does_not_exempt_them() {
+    let code = "#[cfg(test)]\nfn helper() { std::fs::remove_dir(p); }\n";
+    let dir = write_tree(&[("scan/c.rs", code)]);
+    assert_eq!(violations(dir.path()).len(), 1);
 }
 
 #[test]
