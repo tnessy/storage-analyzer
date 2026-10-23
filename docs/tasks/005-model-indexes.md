@@ -48,3 +48,4 @@ Updating the indexes on delete (T011 calls `recompute_top` and subtracts ext tot
 
 ## Amendment (2026-10-23, from the T015 review)
 - **Fix `Model::path(root)`:** it returns a trailing slash, because `PathBuf::push` of an empty `rel_path` adds one. `path(root)` must equal `root_path` exactly, and `path(child)` must be `root_path/child`. Add a test (red first) to `tests/model_apply.rs`. You own it for this fix.
+- **Shared kind mapping (T006 review):** add `Kind::from_raw_mode(mode: u32) -> Kind` to `src/types.rs` (authorized contract addition). Use it in `scan::fs` and `delete::sys`, and remove the two private copies. Give it a unit test.

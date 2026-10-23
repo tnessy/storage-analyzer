@@ -36,3 +36,6 @@ A smoke test inside the example (`#[cfg(test)]`) runs the harness loop on a `tem
 
 ## Out of scope
 Tuning or fixing what it finds. Findings go to Heimdall, who routes them to the architect.
+
+## Amendment (2026-10-23, from the T006 review)
+Also report **worker CPU time while the channel is full** (`/proc/self/task/*/stat` utime + stime for the `scan-*` threads during a deliberately slow apply). The walker polls with `try_send` every 500 µs. If the CPU cost is material, recommend a backoff.
