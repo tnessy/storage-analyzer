@@ -71,3 +71,14 @@ The delete dialog's `p` (T021). Model internals (T012).
   - `r` on an unfinished folder sets the focus, shows the message, and calls no rescan for that folder. Use a recording `ScanStarter` handle, or count listings per path with `FakeFs`.
   - `r` on an unfinished folder that has a skipped child resumes only that child.
   - `r` on a complete folder does a full rescan.
+
+**Copy from UX (landed in `ux/spec.md` §4 F5 / §5.4; use it, not the placeholder):**
+- **`PrioritiseAndResume`:** `Still scanning .cache/: moved it to the front instead of restarting.` If the folder is already the priority: `Already scanning .cache/ first.` Nothing changes, and `r` never toggles the priority off.
+- **`NoneWhileScanning`** (`r` on the root while scanning): nothing changes. The message is `Scan in progress. Press s to stop, then r to rescan.`
+- **After Stopped or Done**, `r` on any folder is `Full` (T012 rule).
+- **Tests, per UX §11:**
+  - `r` on a still-scanning non-root folder → the focus is set, and the count of queued jobs for that path does not rise;
+  - a second `r` leaves the focus set and shows `Already scanning … first.`;
+  - `r` on the root while scanning changes nothing;
+  - `r` after Done or Stopped starts a subtree rescan.
+- **Resuming skipped folders inside** (architect rule): UX's text doesn't mention it, and it is invisible apart from the `⊘` rows turning `◌`. Keep it, and use the same message.

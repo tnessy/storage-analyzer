@@ -153,6 +153,13 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
   - The size gets a `≥` prefix, and so does every ancestor's.
   - It appears in Skipped as `skipped by you`.
 - `r` resumes a skipped folder, or rescans any folder (design §3.5 subtree rescan). The row goes back to `◌` and the `≥` clears when it completes.
+  - **`r` on a folder that is still being scanned** (the scan is running and the folder still has pending work) **does not restart it. It acts as `p`.** The scan is already reading fresh data, so restarting would only repeat disk reads and delay Done. The user's likely intent, "get me current numbers for this folder soon", is best met by moving it to the front.
+    - The folder becomes the priority folder: `▲` on its row and `▲ First:` in the status line.
+    - Message: `Still scanning .cache/: moved it to the front instead of restarting.`
+    - If it is already the priority folder: `Already scanning .cache/ first.` Nothing changes, and `r` never toggles the priority off (only `p` does).
+  - **`r` on the scan root while the scan is running:** nothing changes. Message: `Scan in progress. Press s to stop, then r to rescan.`
+  - **`r` on a folder with no pending work runs a real rescan.** That covers folders that are complete, complete but marked `≥` because of an inner skip, or left unfinished after `s` (Stopped).
+  - This UX holds whichever mechanism the architect picks for O7, because no user-visible restart happens while the folder is still being scanned.
 - `s` stops the whole scan: `■ Stopped at 01:12 · partial results`. Unfinished rows keep `◌`. `r` on the root starts a full rescan.
 - `p`, `x` and `r` do nothing on files or aggregate rows. The status line says `p, x and r work on folders.`
 
@@ -348,6 +355,9 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | Key not applicable | `p, x and r work on folders.` / `Nothing to delete here.` |
 | `x` on a folder already fully scanned (plan D6) | `Already fully scanned.` |
 | `x` on a folder already skipped | `Already skipped. r resumes.` |
+| `r` on a folder still being scanned (plan O7) | `Still scanning .cache/: moved it to the front instead of restarting.` |
+| `r` on the current priority folder, still scanning | `Already scanning .cache/ first.` |
+| `r` on the root while scanning | `Scan in progress. Press s to stop, then r to rescan.` |
 
 ### 5.5 View states
 | View | Starting | Scanning | Done | Stopped | Empty |
@@ -383,7 +393,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | `d` `Delete` | Delete the selected item (dialog) | Tree, map, Largest |
 | `p` | Scan this folder first (toggle) | Folder rows and tiles; delete dialog |
 | `x` | Skip this folder's scan | Unfinished folder |
-| `r` | Resume a skipped folder / rescan a folder | Folder; Skipped list |
+| `r` | Resume a skipped folder, or rescan a folder. On a folder still being scanned it acts as `p` (F5). | Folder; Skipped list |
 | `s` | Stop the whole scan | While scanning |
 | `a` | Disk usage ↔ apparent size | Global |
 | `?` | Help overlay (every key, grouped as in this table) | Global |
@@ -515,6 +525,9 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
    - The first `q` or `Ctrl-C` never exits. With no delete running, `q q` exits.
    - With a delete running, `q q` and `Ctrl-C Ctrl-C` do not exit, the delete continues, and `y` exits with the stderr line.
 9. **Zoom** (`⏎`) on a folder sets the `ScanControl` focus to that path. Zooming back up to the root clears it. `p` toggles it.
+   - **`r` on a still-scanning, non-root folder** sets focus to it and starts no new jobs for it: the count of queued jobs for that path doesn't rise. It shows the §5.4 message. A second `r` leaves focus set.
+   - **`r` on the root while scanning** changes nothing.
+   - **`r` after Done or Stopped** starts a subtree rescan.
 10. **`x`:** the row shows `⊘`, `(scan skipped)` and a `≥` size, and every ancestor shows `≥`. After `r` and completion, all of those marks clear.
 11. **Label truncation:** with a 200-character name and a name containing ESC, the row stays within its width and no raw control byte reaches the buffer.
 12. **Key hints** at 80 columns always contain `? help`.
