@@ -39,3 +39,36 @@
 - Names read once per directory, rel_path validation, hard-link bytes (0 while nlink > 1), ENOENT handling, Partial on stop, busy cleared before `Finished`, `try_send` progress: all accepted. The busy-before-Finished choice is fine once item 1 is fixed.
 
 **Second reviewer:** after the fixes, a second reviewer (architect or team lead) reads `executor.rs` + `sys.rs` against ADR-007 before I commit. Requested via the team lead.
+
+## Round 2 re-review (Heimdall, 2026-10-23): APPROVED by Heimdall. The commit waits only for the architect's second review.
+**Fresh evidence** (clean worktree: HEAD plus `src/delete/{mod,executor,sys,msg}.rs` and `tests/delete_executor.rs`; file hashes match the working tree):
+- fmt ok, clippy `-D warnings` clean;
+- lib 58 (incl. the delete unit tests), delete_executor 17 + 3 ignored, model_apply 16, guards 7 + 11, all pass;
+- 3 consecutive `cargo test --all-targets` runs are clean;
+- `-- --ignored mount`: all 3 namespace tests pass (mount inside, bind inside, mount point as target);
+- release build ok.
+
+My first run failed (clippy, plus 2 panic tests) because it copied the files while engineer-1 was still editing. The rerun on a stable copy is clean. No defect.
+
+**Mutation checks repeated** (scratch worktree):
+
+| Guard disabled | Caught by |
+|---|---|
+| mount/mnt_id check inside the target | `mount_inside_…`, `mount_same_device_bind_inside_…` ✓ |
+| target (dev, ino, kind) identity check | `target_replaced_…`, `target_swapped_for_a_symlink…` ✓ |
+| `NOFOLLOW` in the dir-open flags | `sys::tests::opening_a_symlink_to_a_directory_is_refused` ✓ (was uncaught in round 1) |
+| target mount-point check (F1) | `mount_point_as_the_target_is_refused` ✓ |
+| unbounded `Finished` send / joining `Drop` | `dropping_the_handle_returns_even_if_nobody_reads_the_events` (reported red first) ✓ |
+
+**`mod.rs` after the accidental `git checkout`:** I re-read the whole file.
+- `Shared{Mutex<State{busy, exited}>, Condvar}`: `submit` holds the lock across the send, so the worker can't clear `busy` before it is set.
+- `ExitGuard` marks `exited` even on a panic.
+- `send_finished` retries with `try_send` and gives up once `stop` is set.
+- `Drop` waits ≤ 2 s for `exited`, then joins or detaches.
+- `guarded` uses `catch_unwind` and keeps the last counts.
+
+No issues found.
+
+**Deviation accepted (F2):** a panic yields `Partial { removed: last counts, failures: [target, Other(EIO)] }`, not my suggested `Aborted(OpenFailed(EIO))`. **Partial is the correct choice:** entries may already be gone, and UX's `Aborted` dialog says "Nothing was deleted". Partial also triggers the D1 rescan.
+
+**Cross-task finding (sent to T015):** the app's panic hook runs **before** unwinding, so it also fires for panics that `guarded` catches on the `delete` thread. It would restore the terminal and print to stderr while the TUI keeps running. T015's hook must only tear down the terminal for panics on the main thread. Panics on other threads must not touch the terminal; they are reported through their outcome.

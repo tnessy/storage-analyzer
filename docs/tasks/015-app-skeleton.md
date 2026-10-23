@@ -80,6 +80,7 @@ The main thread is the only receiver of `ScanMsg` (and later `DeleteEvent`), so 
   4. exit.
 
   Never call `shutdown()` while the channel is full and nobody is reading it.
+- **Panic hook scope (T010 review):** the hook runs before unwinding, also for panics that worker threads catch themselves (the delete executor turns a panic into a `Partial` outcome via `catch_unwind`). So the hook restores the terminal and prints **only when the panicking thread is the main thread**. For any other thread it does not touch the terminal or stderr while the TUI is up; the default message can be kept for after exit if that is cheap. Test: a panic caught on a spawned thread leaves the terminal guard active, and the TUI keeps rendering.
 - The panic hook and the SIGTERM/SIGHUP path follow the same rule. They are bounded and never wait unboundedly on a join.
 - **Test (red first):** a headless app with a scanner flooding a `sync_channel(1024)` that is full at the moment of `q y` → `App::run` returns within 2 s. Repeat the test via the SIGTERM path.
 - T021 extends this order for the delete executor.
