@@ -58,5 +58,7 @@ pub enum DeleteFailKind {
 pub enum AbortReason {
     ChangedSinceScan,
     NotFound,
+    /// The target is itself a mount point (another filesystem or a bind mount).
+    MountPoint,
     OpenFailed(i32),
 }

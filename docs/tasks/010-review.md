@@ -72,3 +72,9 @@ No issues found.
 **Deviation accepted (F2):** a panic yields `Partial { removed: last counts, failures: [target, Other(EIO)] }`, not my suggested `Aborted(OpenFailed(EIO))`. **Partial is the correct choice:** entries may already be gone, and UX's `Aborted` dialog says "Nothing was deleted". Partial also triggers the D1 rescan.
 
 **Cross-task finding (sent to T015):** the app's panic hook runs **before** unwinding, so it also fires for panics that `guarded` catches on the `delete` thread. It would restore the terminal and print to stderr while the TUI keeps running. T015's hook must only tear down the terminal for panics on the main thread. Panics on other threads must not touch the terminal; they are reported through their outcome.
+
+## Final (2026-10-23): APPROVED and COMMITTED
+- The architect's second review passed (ADR-007, design §3.8).
+- Heimdall re-verified the final files in a clean worktree: clippy clean, 58 lib, 17 delete_executor, 20 with `--include-ignored`.
+- All 5 mutations repeated on these exact files, and all are caught.
+- **Ruling:** a panic yields **`Partial`** (the architect's wording, as already accepted in the round-2 verdict), **not** `Aborted(OpenFailed(EIO))`.
