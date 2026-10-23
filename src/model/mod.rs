@@ -330,6 +330,8 @@ impl Model {
             ScanMsg::DirIssue { dir, op, kind } => self.apply_dir_issue(dir, op, kind),
             ScanMsg::Cancelled { dir } => self.apply_cancelled(dir),
             ScanMsg::Done { cancelled } => self.apply_done(cancelled),
+            // Refreshing a rescan root's identity is T012's job.
+            ScanMsg::Identity { .. } => {}
         }
     }
 

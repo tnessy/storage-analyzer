@@ -32,6 +32,12 @@ pub enum ScanMsg {
     Cancelled {
         dir: NodeId,
     },
+    /// A rescan root, re-stat'ed without following symlinks, sent before its `Listing`.
+    /// If the target is no longer a directory, no `Listing` follows.
+    Identity {
+        node: NodeId,
+        entry: RawEntry,
+    },
     Done {
         cancelled: bool,
     },
