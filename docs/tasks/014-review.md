@@ -20,3 +20,11 @@
 2. `squarify.rs:143` and `neighbor.rs:5`: `pub fn squarify` has no doc comment. Document the contract: sorting, the aggregate (`id: None`, last), the ±1 edge, dropped zero-area tiles, and `cell_aspect` > 0 and finite. Add `debug_assert!(cell_aspect.is_finite() && cell_aspect > 0.0)`. Validating the input belongs to the CLI (T015 is amended).
 
 There is nothing else; the code quality is good.
+
+## Re-review 2026-10-23: APPROVED, committed
+- I re-ran everything in a clean worktree: HEAD plus the layout files and the regression seed.
+- fmt ok, clippy clean.
+- `cargo test --all-targets`: 37 lib + 4 + 7 pass. Doc tests ok, release build ok.
+- The independent area property is present (`layout_contract`: each float area equals `size/total × w × h × aspect`). Its failing run on a deliberately broken layout is reported.
+- The `squarify` doc comment states the contract, including "not shown". The `debug_assert` on `cell_aspect` is present.
+- The regression seed `proptest-regressions/layout/squarify.txt` is committed.
