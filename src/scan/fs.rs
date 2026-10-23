@@ -3,9 +3,7 @@
 use std::os::fd::OwnedFd;
 use std::path::Path;
 
-use rustix::fs::{
-    AtFlags, CWD, FileType, Mode, OFlags, RawDir, StatxFlags, makedev, openat, statx,
-};
+use rustix::fs::{AtFlags, CWD, Mode, OFlags, RawDir, StatxFlags, makedev, openat, statx};
 pub use rustix::io::Errno;
 
 use crate::types::Kind;
@@ -90,12 +88,7 @@ impl FsAccess for RealFs {
 
     fn stat_at(&self, dir: &RealDir, name: &[u8]) -> Result<StatInfo, Errno> {
         let sx = retry(|| statx(&dir.fd, name, AtFlags::SYMLINK_NOFOLLOW, STAT_MASK))?;
-        let kind = match FileType::from_raw_mode(u32::from(sx.stx_mode)) {
-            FileType::RegularFile => Kind::File,
-            FileType::Directory => Kind::Dir,
-            FileType::Symlink => Kind::Symlink,
-            _ => Kind::Other,
-        };
+        let kind = Kind::from_raw_mode(u32::from(sx.stx_mode));
         Ok(StatInfo {
             kind,
             disk_bytes: sx.stx_blocks * 512,

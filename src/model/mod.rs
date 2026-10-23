@@ -2,19 +2,25 @@
 //!
 //! Only the main thread mutates the model. Bodies are stubs owned by later tasks.
 
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
 
 use crate::delete::{DeleteEvent, DeleteRequest};
 use crate::scan::{RawEntry, ScanMsg};
 use crate::types::{IssueKind, Kind, NodeId, Op, ScanIssue, ScanState, SizeMode};
 
+mod category;
 mod hardlink;
+mod index;
 mod names;
 mod tree;
 
 use hardlink::HardLinks;
+use index::Indexes;
+pub use index::ext_of;
 use names::NameArena;
 use tree::{NO_ISSUE, NO_PARENT, NodeInit, Tree};
 
@@ -61,14 +67,14 @@ pub struct DeleteCheck {
     pub freed_bytes_upper: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ExtKey {
     Ext(Box<[u8]>),
     NoExt,
     Other,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Category {
     Video,
     Image,
@@ -132,6 +138,9 @@ pub struct Model {
     /// Descended directory children of the root, and how many of them are complete.
     top_total: u32,
     top_done: u32,
+    indexes: Indexes,
+    /// Cached `category_of_node` per directory, valid while its disk aggregate is unchanged.
+    dir_categories: Mutex<HashMap<NodeId, (u64, Category)>>,
 }
 
 /// Sums of one listing, applied to the directory and its ancestors in a single walk.
@@ -154,7 +163,7 @@ fn flags_for_issue(kind: IssueKind) -> Flags {
 
 impl Model {
     // T003
-    pub fn new(root_path: PathBuf, root: RawEntry, _opts: ModelOptions) -> Model {
+    pub fn new(root_path: PathBuf, root: RawEntry, opts: ModelOptions) -> Model {
         let mut names = NameArena::default();
         let mut tree = Tree::default();
         tree.ensure_len(1);
@@ -184,6 +193,8 @@ impl Model {
             entries_seen: 0,
             top_total: 0,
             top_done: 0,
+            indexes: Indexes::new(opts.top_n),
+            dir_categories: Mutex::new(HashMap::new()),
         }
     }
 
@@ -277,9 +288,11 @@ impl Model {
     }
 
     pub fn path(&self, id: NodeId) -> PathBuf {
-        let mut path = self.root_path.clone();
-        path.push(self.rel_path(id));
-        path
+        let rel = self.rel_path(id);
+        if rel.as_os_str().is_empty() {
+            return self.root_path.clone();
+        }
+        self.root_path.join(rel)
     }
 
     /// Path relative to the scan root; empty for the root.
@@ -400,6 +413,15 @@ impl Model {
             },
         );
         self.tree.pending_dirs[id.0 as usize] = u32::from(descend);
+        if !is_dir && self.is_counted(id) {
+            self.indexes.add(
+                &entry.name,
+                id,
+                own_disk,
+                own_apparent,
+                entry.kind == Kind::File,
+            );
+        }
         self.tree.children[dir.0 as usize].push(id);
         if let Some((op, kind)) = entry.issue {
             self.record_issue(id, op, kind);
@@ -499,19 +521,95 @@ impl Model {
     }
 
     // T005
+    /// Largest disk size first, then key ascending.
     pub fn ext_totals(&self) -> Vec<(ExtKey, ExtTotals)> {
-        todo!("T005")
+        self.indexes.ext_totals()
     }
-    pub fn category_of(_ext: &ExtKey) -> Category {
-        todo!("T005")
+
+    pub fn category_of(ext: &ExtKey) -> Category {
+        category::category_of(ext)
     }
-    /// Files by extension; directories by the largest category inside.
-    pub fn category_of_node(&self, _id: NodeId) -> Category {
-        todo!("T005")
+
+    /// Files by extension; directories by the category holding most bytes inside
+    /// (direct files plus the categories of child directories, weighted by disk size).
+    pub fn category_of_node(&self, id: NodeId) -> Category {
+        if self.kind(id) != Kind::Dir {
+            return Self::category_of(&ext_of(self.name(id)));
+        }
+        let size = self.size(id, SizeMode::Disk);
+        let cached = {
+            let cache = self
+                .dir_categories
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            cache.get(&id).copied()
+        };
+        if let Some((at_size, category)) = cached
+            && at_size == size
+        {
+            return category;
+        }
+        let mut weights: BTreeMap<Category, u64> = BTreeMap::new();
+        for &child in self.children(id) {
+            if self.exists(child) {
+                *weights.entry(self.category_of_node(child)).or_default() +=
+                    self.size(child, SizeMode::Disk);
+            }
+        }
+        let mut best: Option<(Category, u64)> = None;
+        for (category, weight) in weights {
+            if best.is_none_or(|(_, w)| weight > w) {
+                best = Some((category, weight));
+            }
+        }
+        let category = best.map_or(Category::AudioOther, |(c, _)| c);
+        self.dir_categories
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id, (size, category));
+        category
     }
-    /// Sorted by size, descending.
-    pub fn top_files(&self, _mode: SizeMode) -> Vec<NodeId> {
-        todo!("T005")
+
+    /// The largest files by size, biggest first, ties by smaller `NodeId`.
+    pub fn top_files(&self, mode: SizeMode) -> Vec<NodeId> {
+        match mode {
+            SizeMode::Disk => self.indexes.top_disk.sorted(),
+            SizeMode::Apparent => self.indexes.top_apparent.sorted(),
+        }
+    }
+
+    /// Per-category sums of the per-extension totals, largest disk size first.
+    pub fn category_totals(&self) -> Vec<(Category, ExtTotals)> {
+        let mut sums: BTreeMap<Category, ExtTotals> = BTreeMap::new();
+        for (key, totals) in self.ext_totals() {
+            let sum = sums.entry(Self::category_of(&key)).or_default();
+            sum.disk_bytes += totals.disk_bytes;
+            sum.apparent_bytes += totals.apparent_bytes;
+            sum.count += totals.count;
+        }
+        let mut all: Vec<_> = sums.into_iter().collect();
+        all.sort_by_key(|(_, t)| std::cmp::Reverse(t.disk_bytes));
+        all
+    }
+
+    /// Rebuilds the top-N lists from all files (after a delete). O(files).
+    pub fn recompute_top(&mut self) {
+        self.indexes.clear_top();
+        for i in 0..self.tree.len() {
+            let id = NodeId(i as u32);
+            if self.tree.exists(id) && self.tree.kind[i] == Kind::File && self.is_counted(id) {
+                self.indexes
+                    .offer_top(id, self.tree.agg_disk[i], self.tree.agg_apparent[i]);
+            }
+        }
+    }
+
+    /// Not a duplicate hard link, an unreadable entry or another filesystem.
+    fn is_counted(&self, id: NodeId) -> bool {
+        let flags = self.flags(id);
+        ![Flags::HARDLINK_DUP, Flags::ERROR, Flags::OTHER_FS]
+            .iter()
+            .any(|f| flags.contains(*f))
     }
 
     // T012

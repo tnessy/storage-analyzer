@@ -305,6 +305,19 @@ fn children_sorted_is_size_desc_then_name_asc_and_stable() {
 }
 
 #[test]
+fn path_of_the_root_has_no_trailing_slash() {
+    let mut m = Model::new(
+        PathBuf::from("/data/x"),
+        dir("x"),
+        ModelOptions { top_n: 1 },
+    );
+    m.apply(listing(0, 1, vec![dir("a")]));
+    let root = m.path(NodeId::ROOT);
+    assert_eq!(root.as_os_str().as_bytes(), b"/data/x");
+    assert_eq!(m.path(id(1)).as_os_str().as_bytes(), b"/data/x/a");
+}
+
+#[test]
 fn path_round_trips_raw_bytes() {
     let mut m = Model::new(
         PathBuf::from("/data"),

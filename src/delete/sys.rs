@@ -3,8 +3,8 @@
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
 use rustix::fs::{
-    AtFlags, Dir, FileType, Mode, OFlags, ResolveFlags, Statx, StatxFlags, makedev, openat,
-    openat2, statx, unlinkat,
+    AtFlags, Dir, Mode, OFlags, ResolveFlags, Statx, StatxFlags, makedev, openat, openat2, statx,
+    unlinkat,
 };
 
 pub use rustix::io::Errno;
@@ -34,12 +34,7 @@ impl Meta {
     }
 
     fn from_statx(sx: &Statx) -> Meta {
-        let kind = match FileType::from_raw_mode(u32::from(sx.stx_mode)) {
-            FileType::RegularFile => Kind::File,
-            FileType::Directory => Kind::Dir,
-            FileType::Symlink => Kind::Symlink,
-            _ => Kind::Other,
-        };
+        let kind = Kind::from_raw_mode(u32::from(sx.stx_mode));
         Meta {
             dev: makedev(sx.stx_dev_major, sx.stx_dev_minor),
             ino: sx.stx_ino,
