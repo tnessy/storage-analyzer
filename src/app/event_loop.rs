@@ -347,8 +347,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         B::Error: 'static,
     {
         let area = self.terminal.size().map_err(io_err)?;
-        let tree_height = ui::regions(ratatui::layout::Rect::from(area)).main.height;
-        self.state.prepare_view(usize::from(tree_height));
+        self.state.prepare_view(ratatui::layout::Rect::from(area));
         self.terminal
             .draw(|frame| ui::render(frame, &self.state))
             .map_err(io_err)?;

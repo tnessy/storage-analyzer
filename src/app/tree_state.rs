@@ -294,6 +294,19 @@ impl TreeState {
         }
     }
 
+    /// Makes `id` visible and selected: back to the scan root, ancestors expanded.
+    pub fn reveal(&mut self, model: &Model, id: NodeId, events: &mut Vec<AppEvent>) {
+        if self.view_root != NodeId::ROOT {
+            self.view_root = NodeId::ROOT;
+            events.push(AppEvent::ZoomChanged {
+                view_root: NodeId::ROOT,
+            });
+        }
+        self.expanded.extend(Self::ancestors_of(model, id));
+        self.selection = id;
+        self.aggregate = None;
+    }
+
     fn move_to(&mut self, rows: &[Row], from: usize, to: usize) {
         self.set_cursor(rows[to]);
         let moved = to as isize - from as isize;

@@ -3,10 +3,14 @@
 use std::time::Duration;
 
 use crossterm::event::{KeyEvent, KeyEventKind};
+use ratatui::layout::Rect;
 
 use super::cli::AppConfig;
 use super::keymap::{self, Action};
+use super::list_state::{ListState, View};
+use super::map_state::{MapState, Pane};
 use super::tree_state::{AppEvent, TreeState};
+use crate::layout::Direction;
 use crate::model::Model;
 use crate::types::NodeId;
 use crate::types::{ScanState, SizeMode};
@@ -35,6 +39,15 @@ pub struct AppState {
     pub glyphs: Glyphs,
     pub theme: Theme,
     pub tree: TreeState,
+    pub map: MapState,
+    pub lists: ListState,
+    pub view: View,
+    /// Rows of the list pane at the last `prepare_view`.
+    list_height: usize,
+    /// Which pane the arrow keys drive.
+    pub focus: Pane,
+    /// The loop clock at the last `tick`.
+    pub now: Duration,
     /// The folder whose scan is prioritised (set by T020).
     pub priority: Option<NodeId>,
     /// Events for other parts of the app; drained by the loop.
@@ -63,6 +76,12 @@ impl AppState {
             glyphs: Glyphs::unicode(),
             theme: Theme::standard(),
             tree: TreeState::new(),
+            map: MapState::new(),
+            lists: ListState::new(),
+            view: View::Tree,
+            list_height: 20,
+            focus: Pane::Tree,
+            now: Duration::ZERO,
             priority: None,
             events: Vec::new(),
             dialog: None,
@@ -92,6 +111,7 @@ impl AppState {
     /// Advances elapsed time and expires the transient message.
     /// Returns whether anything visible changed.
     pub fn tick(&mut self, now: Duration) -> bool {
+        self.now = now;
         if self.finished_at.is_none() && !self.is_scanning() {
             self.finished_at = Some(now);
         }
@@ -120,15 +140,89 @@ impl AppState {
             (Some(Dialog::Quit), Action::No | Action::Esc | Action::Enter) => self.dialog = None,
             (Some(Dialog::ScanError(_)), _) => self.dialog = None,
             (Some(Dialog::Quit), _) => {}
+            (None, Action::View(n)) => {
+                self.view = [View::Tree, View::Types, View::Largest, View::Skipped]
+                    [usize::from(n.clamp(1, 4)) - 1];
+                // Keys can arrive before the next frame; the list must already have a cursor.
+                self.lists
+                    .prepare(self.view, &self.model, self.size_mode, self.list_height);
+            }
+            (None, Action::SwitchPane) => {
+                self.focus = match self.focus {
+                    Pane::Tree => Pane::Map,
+                    Pane::Map => Pane::Tree,
+                };
+            }
+            (None, action) if self.focus == Pane::Map => self.map_key(action),
+            (None, action) if self.view != View::Tree => self.list_key(action),
             (None, action) => {
+                self.map.on_aggregate = false;
                 self.tree
                     .apply(action, &self.model, self.size_mode, &mut self.events);
             }
         }
     }
 
-    /// Brings the tree's rows and viewport up to date with the model; call before drawing.
-    pub fn prepare_view(&mut self, tree_height: usize) {
-        self.tree.prepare(&self.model, self.size_mode, tree_height);
+    fn list_key(&mut self, action: Action) {
+        let height = self.list_height;
+        if action == Action::Enter {
+            if let Some(id) = self.lists.selected_node(self.view, &self.model) {
+                self.view = View::Tree;
+                self.tree.reveal(&self.model, id, &mut self.events);
+            }
+            return;
+        }
+        self.lists
+            .apply(self.view, action, &self.model, self.size_mode, height);
+    }
+
+    fn map_key(&mut self, action: Action) {
+        let dir = match action {
+            Action::Up => Direction::Up,
+            Action::Down => Direction::Down,
+            Action::Left => Direction::Left,
+            Action::Right => Direction::Right,
+            Action::Enter | Action::ZoomOut => {
+                if !self.map.on_aggregate && self.tree.aggregate.is_none() {
+                    self.tree
+                        .apply(action, &self.model, self.size_mode, &mut self.events);
+                }
+                return;
+            }
+            _ => return,
+        };
+        let Some(tile) = self.map.step(&self.tree, dir) else {
+            return;
+        };
+        match tile.id {
+            Some(id) => {
+                self.tree.selection = id;
+                self.tree.aggregate = None;
+                self.map.on_aggregate = false;
+            }
+            None => self.map.on_aggregate = true,
+        }
+    }
+
+    /// Brings the tree's rows, the map's layout and the viewports up to date; call before drawing.
+    pub fn prepare_view(&mut self, screen: Rect) {
+        let regions = crate::ui::regions(screen);
+        self.tree.prepare(
+            &self.model,
+            self.size_mode,
+            usize::from(regions.main.height),
+        );
+        self.list_height = usize::from(regions.main.height);
+        self.lists
+            .prepare(self.view, &self.model, self.size_mode, self.list_height);
+        self.map.prepare(
+            &self.model,
+            &self.tree,
+            self.size_mode,
+            self.config.cell_aspect,
+            regions.map,
+            self.now,
+            self.is_scanning(),
+        );
     }
 }

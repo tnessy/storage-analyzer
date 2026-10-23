@@ -4,18 +4,23 @@ pub mod copy;
 pub mod dialog;
 pub mod format;
 pub mod header;
+pub mod largest_view;
+pub mod list_common;
 pub mod sanitize;
+pub mod skipped_view;
 pub mod status;
+pub mod tabs;
 pub mod theme;
 pub mod tree;
+pub mod treemap;
+pub mod types_view;
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::widgets::Paragraph;
 
 use crate::APP_ID;
+use crate::app::list_state::View;
 use crate::app::state::{AppState, Dialog};
-use crate::types::ScanState;
 
 /// Rows outside the two panes: header, tabs, column header, map rule, status, hints.
 const CHROME_ROWS: u16 = 6;
@@ -68,33 +73,21 @@ pub fn root_label(state: &AppState) -> String {
     sanitize::display_name(state.model.path(state.model.root()).as_os_str().as_bytes())
 }
 
-fn map_title_text(state: &AppState, width: usize) -> String {
-    let g = &state.glyphs;
-    let path = root_label(state);
-    let suffix = match state.model.state() {
-        ScanState::Starting | ScanState::Scanning => format!(" {}", copy::MAP_UPDATING),
-        ScanState::Stopped => format!(" {}", copy::MAP_PARTIAL),
-        ScanState::Done => String::new(),
-    };
-    let head = format!(" {}{path}{suffix} ", copy::MAP_TITLE);
-    let head = format::truncate(&head, width, g.ellipsis);
-    let fill = width.saturating_sub(format::width(&head));
-    format!("{head}{}", g.rule.repeat(fill))
-}
-
 pub fn render(frame: &mut Frame, state: &AppState) {
     let r = regions(frame.area());
     header::render_header(frame, r.header, state);
-    header::render_tabs(frame, r.tabs, state);
-    tree::render_column_header(frame, r.column_header, state);
-    tree::render(frame, r.main, state);
-    let title = map_title_text(state, r.map_title.width as usize);
-    frame.render_widget(Paragraph::new(title), r.map_title);
-    if state.model.children(state.model.root()).is_empty() {
-        frame.render_widget(Paragraph::new(copy::MAP_WAITING), r.map);
+    tabs::render_tabs(frame, r.tabs, state);
+    tabs::render_column_header(frame, r.column_header, state);
+    match state.view {
+        View::Tree => tree::render(frame, r.main, state),
+        View::Types => types_view::render(frame, r.main, state),
+        View::Largest => largest_view::render(frame, r.main, state),
+        View::Skipped => skipped_view::render(frame, r.main, state),
     }
+    treemap::render_title(frame, r.map_title, state);
+    treemap::render(frame, r.map, state);
     status::render(frame, r.status, state);
-    header::render_hints(frame, r.hints);
+    header::render_hints(frame, r.hints, state);
     match &state.dialog {
         Some(Dialog::Quit) => {
             let lines = [

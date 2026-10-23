@@ -25,7 +25,7 @@ fn app_state(scan: Scan) -> AppState {
 /// Renders like the app does (prepare the view, then draw) and returns every screen row.
 fn draw(state: &mut AppState, w: u16, h: u16) -> Vec<String> {
     let area = Rect::new(0, 0, w, h);
-    state.prepare_view(usize::from(ui::regions(area).main.height));
+    state.prepare_view(area);
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     terminal.draw(|f| ui::render(f, state)).unwrap();
     terminal

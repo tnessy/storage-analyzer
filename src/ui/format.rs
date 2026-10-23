@@ -119,6 +119,31 @@ pub fn thousands(n: u64) -> String {
     out
 }
 
+/// The system's message for an errno, lowercase and without the `(os error N)` tail.
+pub fn strerror(errno: i32) -> String {
+    let text = std::io::Error::from_raw_os_error(errno).to_string();
+    text.split(" (os error").next().unwrap_or("").to_lowercase()
+}
+
+/// Cuts `s` from the left to at most `max` cells, starting with `ellipsis` when it was cut.
+pub fn truncate_left(s: &str, max: usize, ellipsis: &str) -> String {
+    if width(s) <= max {
+        return s.to_owned();
+    }
+    let mut tail: Vec<char> = Vec::new();
+    let mut used = width(ellipsis);
+    for c in s.chars().rev() {
+        let w = width(&c.to_string());
+        if used + w > max {
+            break;
+        }
+        used += w;
+        tail.push(c);
+    }
+    tail.reverse();
+    format!("{ellipsis}{}", tail.into_iter().collect::<String>())
+}
+
 /// Display width, ignoring nothing: wide characters count 2 cells.
 pub fn width(s: &str) -> usize {
     UnicodeWidthStr::width(s)
@@ -243,6 +268,21 @@ mod tests {
         assert_eq!(thousands(999), "999");
         assert_eq!(thousands(1_000), "1,000");
         assert_eq!(thousands(1_204_331), "1,204,331");
+    }
+
+    #[test]
+    fn left_truncation_keeps_the_end() {
+        assert_eq!(truncate_left("/a/b/c.txt", 20, "…"), "/a/b/c.txt");
+        assert_eq!(
+            truncate_left("/very/long/path/file.txt", 12, "…"),
+            "…th/file.txt"
+        );
+        assert_eq!(width(&truncate_left("/日本語/ファイル名.txt", 9, "…")), 9);
+    }
+
+    #[test]
+    fn strerror_is_lowercase_without_the_os_error_tail() {
+        assert_eq!(strerror(5), "input/output error");
     }
 
     #[test]

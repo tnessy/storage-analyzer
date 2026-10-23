@@ -116,6 +116,11 @@ pub fn folder(name: &str) -> Item {
 }
 
 impl Item {
+    pub fn bytes(mut self, bytes: u64) -> Self {
+        self.bytes = bytes;
+        self
+    }
+
     pub fn issue(mut self, kind: IssueKind) -> Self {
         self.issue = Some((Op::Open, kind));
         self
@@ -134,6 +139,15 @@ impl Scan {
         let root = entry(ROOT_PATH, Kind::Dir, 0);
         Self {
             model: Model::new(ROOT_PATH.into(), root, ModelOptions { top_n: 100 }),
+            next: 1,
+        }
+    }
+
+    /// Like `new`, keeping only the `top_n` largest files (`--top N`).
+    pub fn with_top(top_n: usize) -> Self {
+        let root = entry(ROOT_PATH, Kind::Dir, 0);
+        Self {
+            model: Model::new(ROOT_PATH.into(), root, ModelOptions { top_n }),
             next: 1,
         }
     }

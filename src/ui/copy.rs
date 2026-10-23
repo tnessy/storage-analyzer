@@ -41,3 +41,45 @@ pub const SCAN_ERROR_ACTIONS: &str = "[ any key  Close ]";
 
 pub const AGGREGATE_WORD: &str = "smaller";
 pub const EMPTY_FOLDER: &str = "This folder is empty.";
+
+pub const MAP_HINTS: [&str; 7] = [
+    "arrows move",
+    "⏎ zoom",
+    "⌫ up",
+    "Tab tree",
+    "d delete",
+    "p first",
+    "? help",
+];
+pub const MAP_EMPTY_FOLDER: &str = "This folder is empty.";
+pub const FOCUS_MARK: &str = "*";
+pub const MAP_ALL_ZERO: &str = "items, all 0 B. Nothing to map.";
+pub const NOTICE_SELECTED_LONG: &str = "selected item too small to show";
+pub const NOTICE_SELECTED_SHORT: &str = "selected too small";
+pub const NOTICE_SELECTED_MIN: &str = "selected hidden";
+
+pub const TYPES_COLUMNS: &str = "   SIZE     FILES      %  TYPE";
+pub const LARGEST_COLUMNS: &str = "   SIZE  PATH";
+pub const SKIPPED_COLUMNS: &str = "  PATH (REASON)";
+pub const PARTIAL: &str = "partial";
+pub const NO_FILES_YET: &str = "No files yet.";
+pub const NO_FILES_FOUND: &str = "No files found.";
+pub const NOTHING_SKIPPED: &str = "Nothing skipped.";
+pub const EXT_NONE: &str = "(none)";
+pub const EXT_OTHER: &str = "(other)";
+
+pub const CATEGORY_VIDEO: &str = "Video";
+pub const CATEGORY_IMAGE: &str = "Images";
+pub const CATEGORY_ARCHIVE: &str = "Archives";
+pub const CATEGORY_CODE: &str = "Code & text";
+pub const CATEGORY_BINARY: &str = "Binary";
+pub const CATEGORY_DOCUMENTS: &str = "Documents";
+pub const CATEGORY_AUDIO: &str = "Audio & other";
+
+pub const REASON_DENIED: &str = "permission denied";
+pub const REASON_VANISHED: &str = "vanished during scan";
+pub const REASON_OTHER_FS: &str = "other filesystem";
+pub const REASON_SKIPPED: &str = "skipped by you";
+pub const REASON_READ_ERROR: &str = "read error:";
+
+pub const LIST_HINTS: [&str; 4] = ["↑↓ move", "⏎ show in tree", "d delete", "? help"];

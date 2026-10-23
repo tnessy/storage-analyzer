@@ -7,6 +7,8 @@ use ratatui::widgets::Paragraph;
 
 use super::{copy, format, sanitize};
 use crate::APP_ID;
+use crate::app::list_state::View;
+use crate::app::map_state::Pane;
 use crate::app::state::AppState;
 use crate::types::SizeMode;
 
@@ -45,26 +47,6 @@ fn breadcrumb(state: &AppState) -> String {
     parts.join(&format!(" {} ", state.glyphs.breadcrumb))
 }
 
-pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState) {
-    let mut spans = vec![Span::raw(" ")];
-    for (i, tab) in copy::TABS.iter().enumerate() {
-        if i == 0 {
-            spans.push(Span::styled(format!("[{tab}]"), state.theme.bold));
-        } else {
-            spans.push(Span::raw((*tab).to_owned()));
-        }
-        if i == 3 && !state.model.issues().is_empty() {
-            spans.push(Span::raw(format!(
-                " {}{}",
-                state.glyphs.issue,
-                state.model.issues().len()
-            )));
-        }
-        spans.push(Span::raw("  "));
-    }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
 /// Hints are dropped from the right, but the last one (`? help`) always stays.
 pub fn fit_hints(hints: &[&str], width: usize) -> String {
     let (last, rest) = hints.split_last().expect("hints are never empty");
@@ -80,8 +62,13 @@ pub fn fit_hints(hints: &[&str], width: usize) -> String {
         .unwrap_or_else(|| join(0))
 }
 
-pub fn render_hints(frame: &mut Frame, area: Rect) {
-    let line = fit_hints(&copy::TREE_HINTS, area.width as usize);
+pub fn render_hints(frame: &mut Frame, area: Rect, state: &AppState) {
+    let hints: &[&str] = match (state.focus, state.view) {
+        (Pane::Map, _) => &copy::MAP_HINTS,
+        (Pane::Tree, View::Tree) => &copy::TREE_HINTS,
+        (Pane::Tree, _) => &copy::LIST_HINTS,
+    };
+    let line = fit_hints(hints, area.width as usize);
     frame.render_widget(Paragraph::new(line), area);
 }
 

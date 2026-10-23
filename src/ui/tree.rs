@@ -7,6 +7,7 @@ use ratatui::widgets::Paragraph;
 
 use super::theme::Glyphs;
 use super::{copy, format, sanitize};
+use crate::app::map_state::Pane;
 use crate::app::state::AppState;
 use crate::app::tree_state::Row;
 use crate::model::Flags;
@@ -27,10 +28,13 @@ pub fn bar(fraction: f64, glyphs: &Glyphs) -> String {
 }
 
 pub fn render_column_header(frame: &mut Frame, area: Rect, state: &AppState) {
-    frame.render_widget(
-        Paragraph::new(copy::COLUMN_HEADER).style(state.theme.bold),
-        area,
-    );
+    // The focused pane's title is bold with `*`.
+    let text = if state.focus == Pane::Tree {
+        format!("{}{}", copy::FOCUS_MARK, &copy::COLUMN_HEADER[1..])
+    } else {
+        copy::COLUMN_HEADER.to_owned()
+    };
+    frame.render_widget(Paragraph::new(text).style(state.theme.bold), area);
 }
 
 fn fraction(part: u64, whole: u64) -> f64 {
@@ -77,9 +81,7 @@ fn suffix(state: &AppState, id: NodeId) -> String {
         IssueKind::OtherFilesystem => " (other filesystem)".to_owned(),
         IssueKind::Vanished => " (vanished during scan)".to_owned(),
         IssueKind::Other(errno) => {
-            let text = std::io::Error::from_raw_os_error(errno).to_string();
-            let text = text.split(" (os error").next().unwrap_or("").to_lowercase();
-            format!(" (read error: {text})")
+            format!(" (read error: {})", format::strerror(errno))
         }
     }
 }

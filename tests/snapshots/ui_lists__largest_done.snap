@@ -1,0 +1,9 @@
+---
+source: tests/ui_lists.rs
+expression: "part.join(\"\\n\")"
+---
+   SIZE  PATH                                                                   
+>   39.1K  /synthetic/root/Videos/movie.mkv                                     
+    19.5K  /synthetic/root/Projects/repo.zip                                    
+     5.9K  /synthetic/root/Projects/main.rs                                     
+     2.9K  /synthetic/root/notes.txt

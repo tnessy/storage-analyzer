@@ -1,0 +1,6 @@
+---
+source: tests/ui_lists.rs
+expression: "part.join(\"\\n\")"
+---
+   SIZE  PATH                                                                   
+  No files found.

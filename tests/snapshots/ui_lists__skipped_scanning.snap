@@ -1,0 +1,7 @@
+---
+source: tests/ui_lists.rs
+expression: "part.join(\"\\n\")"
+---
+  PATH (REASON)                                                                 
+> /synthetic/root/skipped  (skipped by you)                                     
+  /synthetic/root/locked  (permission denied)

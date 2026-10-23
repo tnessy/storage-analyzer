@@ -1,0 +1,6 @@
+---
+source: tests/ui_treemap.rs
+expression: "map_part(&render(&mut empty, 80, 24), 80, 24)"
+---
+ Map: /synthetic/root (updating) ───────────────────────────────────────────────
+Waiting for first results…

@@ -1,7 +1,9 @@
 //! Glyphs and styles. Every UI module takes its symbols from here (UX §7).
 
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::BorderType;
+
+use crate::model::Category;
 
 #[derive(Clone, Debug)]
 pub struct Glyphs {
@@ -28,6 +30,7 @@ pub struct Glyphs {
     pub selection: &'static str,
     pub dialog_border: BorderType,
     pub map_border: BorderType,
+    pub map_selected_border: BorderType,
 }
 
 impl Glyphs {
@@ -54,6 +57,7 @@ impl Glyphs {
             selection: ">",
             dialog_border: BorderType::Double,
             map_border: BorderType::Plain,
+            map_selected_border: BorderType::Double,
         }
     }
 }
@@ -71,6 +75,45 @@ impl Theme {
             selected: Style::new().add_modifier(Modifier::REVERSED),
             bold: Style::new().add_modifier(Modifier::BOLD),
             dim: Style::new().add_modifier(Modifier::DIM),
+        }
+    }
+}
+
+/// Treemap tile colors and letter tag for one category (UX §7, Okabe-Ito).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CategoryStyle {
+    pub fill: Color,
+    pub label: Color,
+    pub tag: char,
+}
+
+const BLACK: Color = Color::Rgb(0, 0, 0);
+const WHITE: Color = Color::Rgb(255, 255, 255);
+
+impl Theme {
+    pub fn category(&self, category: Category) -> CategoryStyle {
+        let (r, g, b, label, tag) = match category {
+            Category::Video => (0xE6, 0x9F, 0x00, BLACK, 'V'),
+            Category::Image => (0x56, 0xB4, 0xE9, BLACK, 'I'),
+            Category::Archive => (0x00, 0x9E, 0x73, BLACK, 'A'),
+            Category::CodeText => (0xF0, 0xE4, 0x42, BLACK, 'C'),
+            Category::Binary => (0x00, 0x72, 0xB2, WHITE, 'B'),
+            Category::Documents => (0xD5, 0x5E, 0x00, BLACK, 'D'),
+            Category::AudioOther => (0xCC, 0x79, 0xA7, BLACK, 'O'),
+        };
+        CategoryStyle {
+            fill: Color::Rgb(r, g, b),
+            label,
+            tag,
+        }
+    }
+
+    /// The `(+N smaller)` tile: grey, no category.
+    pub fn aggregate(&self) -> CategoryStyle {
+        CategoryStyle {
+            fill: Color::Rgb(0xBB, 0xBB, 0xBB),
+            label: BLACK,
+            tag: ' ',
         }
     }
 }

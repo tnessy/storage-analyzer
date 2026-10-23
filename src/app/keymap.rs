@@ -18,6 +18,10 @@ pub enum Action {
     Right,
     Left,
     ZoomOut,
+    /// `Tab` and `Shift-Tab` both switch panes.
+    SwitchPane,
+    /// `1`..`4`: Tree, Types, Largest, Skipped.
+    View(u8),
     Other,
 }
 
@@ -39,6 +43,8 @@ pub fn action(key: KeyEvent) -> Action {
         KeyCode::End | KeyCode::Char('G') => Action::Bottom,
         KeyCode::Right | KeyCode::Char('l') => Action::Right,
         KeyCode::Left | KeyCode::Char('h') => Action::Left,
+        KeyCode::Char(c @ '1'..='4') => Action::View(c as u8 - b'0'),
+        KeyCode::Tab | KeyCode::BackTab => Action::SwitchPane,
         KeyCode::Backspace | KeyCode::Char('-') => Action::ZoomOut,
         _ => Action::Other,
     }
