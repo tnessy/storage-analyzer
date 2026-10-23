@@ -202,25 +202,68 @@ fn aggregate_text(state: &AppState, row: &Row, cursor: bool) -> RowText {
     }
 }
 
+/// `..  (up to /parent/path)`, the path cut from the left to fit.
+fn parent_text(state: &AppState, cursor: bool, width: usize) -> RowText {
+    use std::os::unix::ffi::OsStrExt;
+    let g = &state.glyphs;
+    let prefix = format!(
+        "{} {:>SIZE_WIDTH$} {:>5}  {:BAR_CELLS$}    ",
+        if cursor { g.selection } else { " " },
+        "",
+        "",
+        "",
+    );
+    let head = format!("{}  ({} ", copy::PARENT_ROW_NAME, copy::PARENT_ROW_UP);
+    let parent = state
+        .model
+        .parent(state.tree.view_root)
+        .unwrap_or_else(|| state.model.root());
+    let path = sanitize::display_name(state.model.path(parent).as_os_str().as_bytes());
+    let room = width.saturating_sub(format::width(&prefix) + format::width(&head) + 1);
+    let path = format::truncate_left(&path, room, g.ellipsis);
+    RowText {
+        prefix,
+        guides: String::new(),
+        tail: format!("{head}{path})"),
+    }
+}
+
 fn row_line(state: &AppState, row: &Row, width: usize) -> Line<'static> {
     let cursor = state.tree.is_cursor(row);
     let text = match row {
+        Row::Parent => parent_text(state, cursor, width),
         Row::Node { .. } => node_text(state, row, cursor),
         Row::Aggregate { .. } => aggregate_text(state, row, cursor),
     };
     let room = width.saturating_sub(format::width(&text.prefix) + format::width(&text.guides));
     let tail = format::truncate(&text.tail, room, state.glyphs.ellipsis);
     let used = format::width(&text.prefix) + format::width(&text.guides) + format::width(&tail);
-    let mut spans = vec![
-        Span::raw(text.prefix),
-        Span::styled(text.guides, state.theme.dim),
-        Span::raw(tail),
-    ];
-    if cursor {
-        spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
-        Line::from(spans).style(state.theme.selected)
+    let theme = &state.theme;
+    if !cursor {
+        return Line::from(vec![
+            Span::raw(text.prefix),
+            Span::styled(text.guides, theme.dim),
+            Span::raw(tail),
+        ]);
+    }
+    // The selected row: no dim cell anywhere (UX §3.2.1).
+    let pad = Span::raw(" ".repeat(width.saturating_sub(used)));
+    if state.focus == Pane::Tree {
+        Line::from(vec![
+            Span::raw(text.prefix),
+            Span::raw(text.guides),
+            Span::raw(tail),
+            pad,
+        ])
+        .style(theme.selected)
     } else {
-        Line::from(spans)
+        Line::from(vec![
+            Span::raw(text.prefix),
+            Span::raw(text.guides),
+            Span::styled(tail, theme.underline),
+            pad,
+        ])
+        .style(theme.selected_unfocused)
     }
 }
 

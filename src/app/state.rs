@@ -148,10 +148,20 @@ impl AppState {
                     .prepare(self.view, &self.model, self.size_mode, self.list_height);
             }
             (None, Action::SwitchPane) => {
+                if self.focus == Pane::Tree && self.view == View::Tree && self.tree.on_parent {
+                    self.select_largest_tile();
+                }
                 self.focus = match self.focus {
                     Pane::Tree => Pane::Map,
                     Pane::Map => Pane::Tree,
                 };
+            }
+            // The `..` row takes these before any later task acts on them.
+            (None, Action::Delete | Action::Prioritise | Action::Skip | Action::Resume)
+                if self.focus == Pane::Tree && self.view == View::Tree && self.tree.on_parent =>
+            {
+                let now = self.now;
+                self.set_transient(crate::ui::copy::PARENT_ROW_HINT, now);
             }
             (None, action) if self.focus == Pane::Map => self.map_key(action),
             (None, action) if self.view != View::Tree => self.list_key(action),
@@ -160,6 +170,22 @@ impl AppState {
                 self.tree
                     .apply(action, &self.model, self.size_mode, &mut self.events);
             }
+        }
+    }
+
+    /// From the `..` row, `Tab` moves to the map and picks its largest tile.
+    fn select_largest_tile(&mut self) {
+        // The map shows the view root's children, and its largest tile is the largest child.
+        let largest = self
+            .model
+            .children_sorted(self.tree.view_root, self.size_mode)
+            .into_iter()
+            .next();
+        if let Some(id) = largest {
+            self.tree.selection = id;
+            self.tree.aggregate = None;
+            self.tree.on_parent = false;
+            self.map.on_aggregate = false;
         }
     }
 

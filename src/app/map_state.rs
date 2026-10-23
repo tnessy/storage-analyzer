@@ -6,7 +6,7 @@ use ratatui::layout::Rect;
 
 use super::tree_state::TreeState;
 use crate::layout::{Direction, Tile, neighbor, squarify};
-use crate::model::Model;
+use crate::model::{Category, Model};
 use crate::types::{NodeId, SizeMode};
 
 /// While scanning, the layout is recomputed at most this often (design §5: ≤ 2 Hz).
@@ -33,6 +33,8 @@ struct Cache {
     fingerprint: (u64, usize),
     at: Duration,
     tiles: Vec<Tile>,
+    /// For each tile, whether it takes its category's alternate shade.
+    alt_shade: Vec<bool>,
     /// Items with a size that got no tile of their own, with their sizes.
     hidden: Vec<(NodeId, u64)>,
     child_count: usize,
@@ -46,6 +48,13 @@ pub struct MapState {
     pub on_aggregate: bool,
     cache: Option<Cache>,
     relayouts: u64,
+}
+
+/// Two tiles share a border segment: they touch along an edge with a non-empty overlap.
+fn shares_border(a: Rect, b: Rect) -> bool {
+    let overlap = |a0: u16, a1: u16, b0: u16, b1: u16| a1.min(b1) > a0.max(b0);
+    ((a.right() == b.x || b.right() == a.x) && overlap(a.y, a.bottom(), b.y, b.bottom()))
+        || ((a.bottom() == b.y || b.bottom() == a.y) && overlap(a.x, a.right(), b.x, b.right()))
 }
 
 /// Which folder's children the map shows (design §3.7, UX §3.3).
@@ -76,6 +85,14 @@ impl MapState {
         self.cache.as_ref().map(|c| c.key.scope)
     }
 
+    /// Whether tile `i` is drawn in the alternate shade of its category (UX §7).
+    pub fn alt_shade(&self, i: usize) -> bool {
+        self.cache
+            .as_ref()
+            .and_then(|c| c.alt_shade.get(i).copied())
+            .unwrap_or(false)
+    }
+
     /// Items with a size that have no tile of their own (they are in the aggregate tile, or lost).
     pub fn hidden(&self) -> &[(NodeId, u64)] {
         self.cache.as_ref().map_or(&[], |c| &c.hidden)
@@ -93,7 +110,9 @@ impl MapState {
     /// The index of the highlighted tile, if any.
     pub fn selected_index(&self, tree: &TreeState) -> Option<usize> {
         let tiles = self.tiles();
-        if tree.aggregate.is_some() || self.on_aggregate {
+        if tree.on_parent {
+            None
+        } else if tree.aggregate.is_some() || self.on_aggregate {
             tiles.iter().position(|t| t.id.is_none())
         } else {
             tiles.iter().position(|t| t.id == Some(tree.selection))
@@ -137,6 +156,20 @@ impl MapState {
             .map(|&c| (c, model.size(c, mode)))
             .collect();
         let tiles = squarify(&items, area, aspect);
+        let categories: Vec<Option<Category>> = tiles
+            .iter()
+            .map(|t| t.id.map(|id| model.category_of_node(id)))
+            .collect();
+        let mut alt_shade: Vec<bool> = Vec::with_capacity(tiles.len());
+        for i in 0..tiles.len() {
+            // Alternate when an earlier base-shade tile of the same category touches this one.
+            let alt = (0..i).any(|j| {
+                categories[j] == categories[i]
+                    && !alt_shade[j]
+                    && shares_border(tiles[i].rect, tiles[j].rect)
+            });
+            alt_shade.push(alt);
+        }
         let hidden = items
             .iter()
             .filter(|&&(id, size)| size > 0 && !tiles.iter().any(|t| t.id == Some(id)))
@@ -147,6 +180,7 @@ impl MapState {
             fingerprint,
             at: now,
             tiles,
+            alt_shade,
             hidden,
             child_count: items.len(),
             total: items.iter().map(|&(_, s)| s).sum(),

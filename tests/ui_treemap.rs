@@ -10,7 +10,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier};
 use storage_analyzer::APP_ID;
 use storage_analyzer::app::cli;
 use storage_analyzer::app::map_state::Pane;
@@ -593,4 +593,237 @@ fn apparent_size_mode_changes_the_tile_sizes() {
     render(&mut state, 80, 24);
     assert_eq!(state.map.tiles().len(), 2);
     let _ = ids;
+}
+
+fn perimeter(r: Rect) -> Vec<(u16, u16)> {
+    let mut cells = Vec::new();
+    for x in r.x..r.right() {
+        cells.push((x, r.y));
+        cells.push((x, r.bottom() - 1));
+    }
+    for y in r.y..r.bottom() {
+        cells.push((r.x, y));
+        cells.push((r.right() - 1, y));
+    }
+    cells
+}
+
+#[test]
+fn the_selected_tile_frame_is_reverse_bold_with_a_marked_title_and_keeps_its_fill() {
+    let (scan, ids) = files(&[("movie.mkv", 600), ("notes.txt", 400)]);
+    let mut state = app_state(scan);
+    press(&mut state, &[KeyCode::Down]);
+    for focus_map in [false, true] {
+        if focus_map {
+            press(&mut state, &[KeyCode::Tab]);
+        }
+        let buf = render(&mut state, 80, 24);
+        let r = tile_of(&state, ids[0]);
+        for (x, y) in perimeter(r) {
+            let m = buf[(x, y)].modifier;
+            assert!(
+                m.contains(Modifier::REVERSED | Modifier::BOLD),
+                "frame cell ({x},{y}) focus_map={focus_map}"
+            );
+        }
+        assert_eq!(buf[(r.x + 1, r.y)].symbol(), ">", "the title starts with >");
+        let inner = &buf[(r.x + 2, r.bottom() - 2)];
+        assert_eq!(
+            inner.bg,
+            Color::Rgb(0xE6, 0x9F, 0x00),
+            "interior keeps its fill"
+        );
+        assert!(!inner.modifier.contains(Modifier::REVERSED));
+        let other = tile_of(&state, ids[1]);
+        for (x, y) in perimeter(other) {
+            assert!(
+                !buf[(x, y)].modifier.contains(Modifier::REVERSED),
+                "other tiles are plain"
+            );
+        }
+    }
+}
+
+#[test]
+fn tile_frames_use_the_default_background_and_only_the_interior_is_filled() {
+    let (scan, ids) = files(&[("movie.mkv", 600), ("notes.txt", 400)]);
+    let mut state = app_state(scan);
+    let buf = render(&mut state, 80, 24);
+    for id in ids {
+        let r = tile_of(&state, id);
+        for (x, y) in perimeter(r) {
+            assert_eq!(buf[(x, y)].bg, Color::Reset, "frame cell ({x},{y})");
+        }
+        assert_ne!(buf[(r.x + 2, r.bottom() - 2)].bg, Color::Reset);
+    }
+}
+
+fn luminance(c: Color) -> f64 {
+    let Color::Rgb(r, g, b) = c else {
+        panic!("truecolor expected")
+    };
+    let lin = |v: u8| {
+        let v = f64::from(v) / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+fn contrast(a: Color, b: Color) -> f64 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+#[test]
+fn every_fill_and_label_pair_meets_the_contrast_floor() {
+    use storage_analyzer::model::Category::*;
+    let theme = storage_analyzer::ui::theme::Theme::standard();
+    let mut checked = 0;
+    for category in [
+        Video, Image, Archive, CodeText, Binary, Documents, AudioOther,
+    ] {
+        let s = theme.category(category);
+        assert!(
+            contrast(s.fill, s.label) >= 4.5,
+            "{category:?} base {:.2}",
+            contrast(s.fill, s.label)
+        );
+        assert!(
+            contrast(s.alt_fill, s.alt_label) >= 7.0,
+            "{category:?} alt {:.2}",
+            contrast(s.alt_fill, s.alt_label)
+        );
+        assert_ne!(s.fill, s.alt_fill, "{category:?} has a distinct alternate");
+        checked += 2;
+    }
+    let a = theme.aggregate();
+    assert!(contrast(a.fill, a.label) >= 4.5);
+    assert!(contrast(a.alt_fill, a.alt_label) >= 7.0);
+    assert_ne!(a.fill, a.alt_fill);
+    assert_eq!(checked, 14);
+    // Exactly the §7 values.
+    assert_eq!(
+        theme.category(Documents).alt_fill,
+        Color::Rgb(0x8A, 0x3D, 0x00)
+    );
+    assert_eq!(
+        theme.category(Documents).alt_label,
+        Color::Rgb(255, 255, 255)
+    );
+    assert_eq!(theme.aggregate().alt_fill, Color::Rgb(0x96, 0x96, 0x96));
+}
+
+fn touch(a: Rect, b: Rect) -> bool {
+    let overlap = |a0: u16, a1: u16, b0: u16, b1: u16| a1.min(b1) > a0.max(b0);
+    (a.right() == b.x || b.right() == a.x) && overlap(a.y, a.bottom(), b.y, b.bottom())
+        || (a.bottom() == b.y || b.bottom() == a.y) && overlap(a.x, a.right(), b.x, b.right())
+}
+
+fn six_video_folders() -> AppState {
+    let mut scan = Scan::new();
+    let dirs = scan.list(ROOT, (0..6).map(|i| folder(&format!("dir{i}"))).collect());
+    for (i, &d) in dirs.iter().enumerate() {
+        scan.list(d, vec![file(&format!("v{i}.mkv"), 1000 - i as u64 * 20)]);
+    }
+    app_state(scan)
+}
+
+#[test]
+fn same_category_neighbours_get_different_fills() {
+    let mut state = six_video_folders();
+    let buf = render(&mut state, 80, 24);
+    let tiles = state.map.tiles().to_vec();
+    assert_eq!(tiles.len(), 6);
+    let fill = |r: Rect| buf[(r.x + 2, r.bottom() - 2)].bg;
+    let mut adjacent = 0;
+    for (i, a) in tiles.iter().enumerate() {
+        for b in &tiles[i + 1..] {
+            if touch(a.rect, b.rect) {
+                adjacent += 1;
+                assert_ne!(
+                    fill(a.rect),
+                    fill(b.rect),
+                    "{:?} and {:?} share a border",
+                    a.rect,
+                    b.rect
+                );
+            }
+        }
+    }
+    assert!(adjacent >= 5, "the fixture has neighbours");
+    // Deterministic: the same input gives the same shades.
+    let again = render(&mut six_video_folders(), 80, 24);
+    for t in &tiles {
+        assert_eq!(fill(t.rect), again[(t.rect.x + 2, t.rect.bottom() - 2)].bg);
+    }
+    // The first tile takes the base shade, its neighbour the alternate.
+    assert_eq!(fill(tiles[0].rect), Color::Rgb(0xE6, 0x9F, 0x00));
+}
+
+fn zoomed_scene() -> (AppState, Vec<NodeId>) {
+    let mut scan = Scan::new();
+    let top = scan.list(ROOT, vec![folder("aaa"), file("zzz", 5)]);
+    let kids = scan.list(top[0], vec![file("one.mkv", 700), file("two.mkv", 300)]);
+    (app_state(scan), kids)
+}
+
+#[test]
+fn with_the_parent_row_selected_the_map_shows_the_same_tiles_but_highlights_none() {
+    let (mut state, kids) = zoomed_scene();
+    press(&mut state, &[KeyCode::Down, KeyCode::Enter]);
+    let at_root_row = render(&mut state, 100, 24);
+    let tiles_before: Vec<_> = state.map.tiles().to_vec();
+    assert!(tiles_before.iter().any(|t| t.id == Some(kids[0])));
+
+    press(&mut state, &[KeyCode::Up]);
+    assert!(state.tree.on_parent);
+    let buf = render(&mut state, 100, 24);
+    assert_eq!(state.map.tiles(), tiles_before.as_slice());
+    for t in state.map.tiles() {
+        assert_eq!(corner(&buf, t.rect), "┌", "no tile is highlighted");
+        assert!(
+            !buf[(t.rect.x, t.rect.y)]
+                .modifier
+                .contains(Modifier::REVERSED)
+        );
+    }
+    let title = title_row(&buf, 100, 24);
+    assert!(title.contains(" · ⏎ goes up to /synthetic/root"), "{title}");
+    assert!(!title_row(&at_root_row, 100, 24).contains("goes up"));
+}
+
+#[test]
+fn the_selected_hidden_notice_never_fires_for_the_parent_row() {
+    let mut scan = Scan::new();
+    let top = scan.list(ROOT, vec![folder("aaa")]);
+    let mut items = vec![file("huge", 1_000_000)];
+    items.extend((0..4).map(|i| file(&format!("tiny{i}"), 1)));
+    scan.list(top[0], items);
+    let mut state = app_state(scan);
+    press(&mut state, &[KeyCode::Down, KeyCode::Enter, KeyCode::Up]);
+    let buf = render(&mut state, 100, 24);
+    let title = title_row(&buf, 100, 24);
+    assert!(!title.contains("selected"), "{title}");
+    assert!(
+        title.contains("4 items too small to show") || title.contains("+4 hidden"),
+        "{title}"
+    );
+}
+
+#[test]
+fn tab_from_the_parent_row_focuses_the_map_with_the_largest_tile_selected() {
+    let (mut state, kids) = zoomed_scene();
+    press(
+        &mut state,
+        &[KeyCode::Down, KeyCode::Enter, KeyCode::Up, KeyCode::Tab],
+    );
+    assert_eq!(state.focus, Pane::Map);
+    assert!(!state.tree.on_parent);
+    assert_eq!(state.tree.selection, kids[0], "the largest tile");
+    let buf = render(&mut state, 100, 24);
+    assert_eq!(corner(&buf, tile_of(&state, kids[0])), "╔");
 }

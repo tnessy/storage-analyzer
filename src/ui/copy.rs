@@ -83,3 +83,8 @@ pub const REASON_SKIPPED: &str = "skipped by you";
 pub const REASON_READ_ERROR: &str = "read error:";
 
 pub const LIST_HINTS: [&str; 4] = ["↑↓ move", "⏎ show in tree", "d delete", "? help"];
+
+pub const PARENT_ROW_HINT: &str = "\"..\" is the parent folder. Press ⏎ to go up.";
+pub const PARENT_ROW_NAME: &str = "..";
+pub const PARENT_ROW_UP: &str = "up to";
+pub const MAP_UP_HINT: &str = "⏎ goes up to";

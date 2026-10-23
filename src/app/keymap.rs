@@ -20,6 +20,11 @@ pub enum Action {
     ZoomOut,
     /// `Tab` and `Shift-Tab` both switch panes.
     SwitchPane,
+    /// `d` / `Delete`, `p`, `x`, `r`: wired by T020/T021; the `..` row intercepts them first.
+    Delete,
+    Prioritise,
+    Skip,
+    Resume,
     /// `1`..`4`: Tree, Types, Largest, Skipped.
     View(u8),
     Other,
@@ -44,6 +49,10 @@ pub fn action(key: KeyEvent) -> Action {
         KeyCode::Right | KeyCode::Char('l') => Action::Right,
         KeyCode::Left | KeyCode::Char('h') => Action::Left,
         KeyCode::Char(c @ '1'..='4') => Action::View(c as u8 - b'0'),
+        KeyCode::Char('d') | KeyCode::Delete => Action::Delete,
+        KeyCode::Char('p') => Action::Prioritise,
+        KeyCode::Char('x') => Action::Skip,
+        KeyCode::Char('r') => Action::Resume,
         KeyCode::Tab | KeyCode::BackTab => Action::SwitchPane,
         KeyCode::Backspace | KeyCode::Char('-') => Action::ZoomOut,
         _ => Action::Other,
@@ -106,9 +115,11 @@ mod tests {
             action(key(KeyCode::Enter, KeyModifiers::NONE)),
             Action::Enter
         );
-        assert_eq!(
-            action(key(KeyCode::Char('x'), KeyModifiers::NONE)),
-            Action::Other
-        );
+        let plain = |c| action(key(KeyCode::Char(c), KeyModifiers::NONE));
+        assert_eq!(plain('x'), Action::Skip);
+        assert_eq!(plain('d'), Action::Delete);
+        assert_eq!(plain('p'), Action::Prioritise);
+        assert_eq!(plain('r'), Action::Resume);
+        assert_eq!(plain('z'), Action::Other);
     }
 }

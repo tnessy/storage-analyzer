@@ -64,7 +64,13 @@ impl Glyphs {
 
 #[derive(Clone, Debug)]
 pub struct Theme {
+    /// The selected row of the focused pane: reverse video and bold, never dim.
     pub selected: Style,
+    /// The selected row when the other pane has focus: bold only.
+    pub selected_unfocused: Style,
+    pub underline: Style,
+    /// The frame of the selected map tile.
+    pub tile_frame_selected: Style,
     pub bold: Style,
     pub dim: Style,
 }
@@ -72,7 +78,10 @@ pub struct Theme {
 impl Theme {
     pub fn standard() -> Self {
         Self {
-            selected: Style::new().add_modifier(Modifier::REVERSED),
+            selected: Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            selected_unfocused: Style::new().add_modifier(Modifier::BOLD),
+            underline: Style::new().add_modifier(Modifier::UNDERLINED),
+            tile_frame_selected: Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD),
             bold: Style::new().add_modifier(Modifier::BOLD),
             dim: Style::new().add_modifier(Modifier::DIM),
         }
@@ -84,6 +93,9 @@ impl Theme {
 pub struct CategoryStyle {
     pub fill: Color,
     pub label: Color,
+    /// The alternate shade for a neighbour of the same category, with its label color.
+    pub alt_fill: Color,
+    pub alt_label: Color,
     pub tag: char,
 }
 
@@ -92,18 +104,20 @@ const WHITE: Color = Color::Rgb(255, 255, 255);
 
 impl Theme {
     pub fn category(&self, category: Category) -> CategoryStyle {
-        let (r, g, b, label, tag) = match category {
-            Category::Video => (0xE6, 0x9F, 0x00, BLACK, 'V'),
-            Category::Image => (0x56, 0xB4, 0xE9, BLACK, 'I'),
-            Category::Archive => (0x00, 0x9E, 0x73, BLACK, 'A'),
-            Category::CodeText => (0xF0, 0xE4, 0x42, BLACK, 'C'),
-            Category::Binary => (0x00, 0x72, 0xB2, WHITE, 'B'),
-            Category::Documents => (0xD5, 0x5E, 0x00, BLACK, 'D'),
-            Category::AudioOther => (0xCC, 0x79, 0xA7, BLACK, 'O'),
+        let (base, label, alt, alt_label, tag) = match category {
+            Category::Video => ((0xE6, 0x9F, 0x00), BLACK, (0xF0, 0xC5, 0x66), BLACK, 'V'),
+            Category::Image => ((0x56, 0xB4, 0xE9), BLACK, (0x9A, 0xD2, 0xF2), BLACK, 'I'),
+            Category::Archive => ((0x00, 0x9E, 0x73), BLACK, (0x66, 0xC5, 0xAB), BLACK, 'A'),
+            Category::CodeText => ((0xF0, 0xE4, 0x42), BLACK, (0xBB, 0xB2, 0x33), BLACK, 'C'),
+            Category::Binary => ((0x00, 0x72, 0xB2), WHITE, (0x00, 0x4A, 0x74), WHITE, 'B'),
+            Category::Documents => ((0xD5, 0x5E, 0x00), BLACK, (0x8A, 0x3D, 0x00), WHITE, 'D'),
+            Category::AudioOther => ((0xCC, 0x79, 0xA7), BLACK, (0xE0, 0xAF, 0xCA), BLACK, 'O'),
         };
         CategoryStyle {
-            fill: Color::Rgb(r, g, b),
+            fill: rgb(base),
             label,
+            alt_fill: rgb(alt),
+            alt_label,
             tag,
         }
     }
@@ -111,9 +125,15 @@ impl Theme {
     /// The `(+N smaller)` tile: grey, no category.
     pub fn aggregate(&self) -> CategoryStyle {
         CategoryStyle {
-            fill: Color::Rgb(0xBB, 0xBB, 0xBB),
+            fill: rgb((0xBB, 0xBB, 0xBB)),
             label: BLACK,
+            alt_fill: rgb((0x96, 0x96, 0x96)),
+            alt_label: BLACK,
             tag: ' ',
         }
     }
+}
+
+fn rgb((r, g, b): (u8, u8, u8)) -> Color {
+    Color::Rgb(r, g, b)
 }

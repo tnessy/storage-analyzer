@@ -83,49 +83,73 @@ fn split_label(words: &[String], width: usize, ellipsis: &str) -> (String, Strin
     (first, format::truncate(&second, width, ellipsis))
 }
 
-fn draw_tile(frame: &mut Frame, state: &AppState, tile: &Tile, selected: bool) {
+fn draw_tile(frame: &mut Frame, state: &AppState, index: usize, selected: bool) {
+    let tile = &state.map.tiles()[index];
     let r = tile.rect;
     let style = match tile.id {
         Some(id) => state.theme.category(state.model.category_of_node(id)),
         None => state.theme.aggregate(),
     };
-    let paint = Style::new().bg(style.fill).fg(style.label);
+    let (fill, label) = if state.map.alt_shade(index) {
+        (style.alt_fill, style.alt_label)
+    } else {
+        (style.fill, style.label)
+    };
+    let mut paint = Style::new().bg(fill).fg(label);
+    let frame_style = if selected {
+        state.theme.tile_frame_selected
+    } else {
+        Style::new()
+    };
     let marker = tile.id.and_then(|id| issue_marker(state, id));
     let words = label_words(state, tile, &style);
     let bordered = r.width >= 2 && r.height >= 2;
     let labelled = bordered && r.width >= MIN_LABEL_WIDTH;
     if bordered {
+        // The frame and its title row stay on the terminal's colors; only the inside is filled.
         let border = if selected {
             state.glyphs.map_selected_border
         } else {
             state.glyphs.map_border
         };
-        let mut block = Block::bordered().border_type(border).style(paint);
+        let mut block = Block::bordered()
+            .border_type(border)
+            .border_style(frame_style)
+            .title_style(frame_style);
+        let mark = if selected { state.glyphs.selection } else { "" };
         let reserve = if marker.is_some() { 2 } else { 0 };
-        let room = usize::from(r.width.saturating_sub(2)).saturating_sub(reserve);
+        let room =
+            usize::from(r.width.saturating_sub(2)).saturating_sub(reserve + format::width(mark));
         let (first, second) = split_label(&words, room, state.glyphs.ellipsis);
         if labelled {
-            block = block.title(first);
+            block = block.title(format!("{mark}{first}"));
         }
         let inner = block.inner(r);
         frame.render_widget(block, r);
+        frame.render_widget(Block::new().style(paint), inner);
         if labelled && inner.height > 0 && !second.is_empty() {
             frame.render_widget(Paragraph::new(second).style(paint), inner);
         }
     } else {
+        if selected {
+            paint = paint.add_modifier(Modifier::REVERSED | Modifier::BOLD);
+        }
         frame.render_widget(Block::new().style(paint), r);
     }
     if let Some(glyph) = marker {
-        let at = if labelled {
-            (r.right() - 2, r.y)
+        let (at, glyph_style) = if labelled {
+            (
+                (r.right() - 2, r.y),
+                frame_style.add_modifier(Modifier::BOLD),
+            )
         } else {
-            (r.x + r.width / 2, r.y + r.height / 2)
+            (
+                (r.x + r.width / 2, r.y + r.height / 2),
+                paint.add_modifier(Modifier::BOLD),
+            )
         };
         let cell = Rect::new(at.0, at.1, 1, 1);
-        frame.render_widget(
-            Paragraph::new(glyph).style(paint.add_modifier(Modifier::BOLD)),
-            cell,
-        );
+        frame.render_widget(Paragraph::new(glyph).style(glyph_style), cell);
     }
 }
 
@@ -162,8 +186,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         }
         None => {
             let selected = state.map.selected_index(&state.tree);
-            for (i, tile) in state.map.tiles().iter().enumerate() {
-                draw_tile(frame, state, tile, selected == Some(i));
+            for i in 0..state.map.tiles().len() {
+                draw_tile(frame, state, i, selected == Some(i));
             }
         }
     }
@@ -183,7 +207,7 @@ fn notice(state: &AppState) -> Option<Notice> {
     if hidden.is_empty() || map.tiles().iter().any(|t| t.id.is_none()) {
         return None;
     }
-    let on_node = state.tree.aggregate.is_none() && !map.on_aggregate;
+    let on_node = state.tree.aggregate.is_none() && !map.on_aggregate && !state.tree.on_parent;
     Some(Notice {
         count: hidden.len(),
         bytes: hidden.iter().map(|&(_, s)| s).sum(),
@@ -235,23 +259,44 @@ pub fn title_text(state: &AppState, width: usize) -> String {
     };
     let notice = notice(state);
 
-    // (path limit, notice form, show status): each step keeps the earlier ones.
-    let steps: [(Option<usize>, u8, bool); 6] = [
-        (None, 1, true),
-        (Some(PATH_FIT_FIRST), 1, true),
-        (Some(PATH_FIT_FIRST), 2, true),
-        (Some(PATH_FIT_FIRST), 2, false),
-        (Some(PATH_FIT_SECOND), 2, false),
-        (Some(PATH_FIT_SECOND), 3, false),
+    // On the `..` row the title also says where ⏎ goes (UX §3.2.2).
+    let up_path = state
+        .tree
+        .on_parent
+        .then(|| state.model.parent(state.tree.view_root))
+        .flatten()
+        .map(|p| {
+            use std::os::unix::ffi::OsStrExt;
+            sanitize::display_name(state.model.path(p).as_os_str().as_bytes())
+        });
+
+    // (path limit, notice form, show status, up-path limit): each step keeps the earlier ones.
+    // The `⏎ goes up to` path is cut first, before the notice is shortened.
+    type Step = (Option<usize>, u8, bool, Option<usize>);
+    let steps: [Step; 8] = [
+        (None, 1, true, None),
+        (None, 1, true, Some(PATH_FIT_FIRST)),
+        (None, 1, true, Some(PATH_FIT_SECOND)),
+        (Some(PATH_FIT_FIRST), 1, true, Some(PATH_FIT_SECOND)),
+        (Some(PATH_FIT_FIRST), 2, true, Some(PATH_FIT_SECOND)),
+        (Some(PATH_FIT_FIRST), 2, false, Some(PATH_FIT_SECOND)),
+        (Some(PATH_FIT_SECOND), 2, false, Some(PATH_FIT_SECOND)),
+        (Some(PATH_FIT_SECOND), 3, false, Some(PATH_FIT_SECOND)),
     ];
-    let build = |step: (Option<usize>, u8, bool)| {
+    let build = |step: Step| {
+        let up = up_path.as_ref().map_or(String::new(), |p| {
+            let p = step
+                .3
+                .map_or(p.clone(), |m| format::truncate_left(p, m, g.ellipsis));
+            format!(" {} {} {p}", g.separator, copy::MAP_UP_HINT)
+        });
         let shown = step.0.map_or(path.clone(), |m| {
             format::truncate_left(&path, m, g.ellipsis)
         });
         let status = status
             .filter(|_| step.2)
             .map_or(String::new(), |s| format!(" {s}"));
-        let left = format!(" {star}{}{shown}{status} ", copy::MAP_TITLE);
+        let left = format!(" {star}{}{shown}{status}{up} ", copy::MAP_TITLE);
         let right = notice.as_ref().map_or(String::new(), |n| {
             format!(" {} {}", notice_text(n, step.1, g.separator), g.rule)
         });

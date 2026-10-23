@@ -12,6 +12,8 @@ pub const AGGREGATE_PAGE: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Row {
+    /// The `..` row, only when zoomed: pinned above the view root, never sorted or aggregated.
+    Parent,
     Node {
         id: NodeId,
         depth: u16,
@@ -43,6 +45,8 @@ pub struct TreeState {
     /// `Some(dir)` when the cursor is on `dir`'s aggregate row; `selection` is then `dir`.
     pub aggregate: Option<NodeId>,
     pub view_root: NodeId,
+    /// The cursor is on the `..` row (the selection stays on the view root).
+    pub on_parent: bool,
     pub expanded: HashSet<NodeId>,
     /// Extra pages of children revealed per folder; forgotten when the folder is collapsed.
     revealed: HashMap<NodeId, usize>,
@@ -61,6 +65,7 @@ impl TreeState {
             selection: NodeId::ROOT,
             aggregate: None,
             view_root: NodeId::ROOT,
+            on_parent: false,
             expanded: HashSet::from([NodeId::ROOT]),
             revealed: HashMap::new(),
             line: 0,
@@ -82,7 +87,8 @@ impl TreeState {
 
     pub fn is_cursor(&self, row: &Row) -> bool {
         match (*row, self.aggregate) {
-            (Row::Node { id, .. }, None) => id == self.selection,
+            (Row::Parent, _) => self.on_parent,
+            (Row::Node { id, .. }, None) => !self.on_parent && id == self.selection,
             (Row::Aggregate { dir, .. }, Some(on)) => dir == on,
             _ => false,
         }
@@ -109,13 +115,17 @@ impl TreeState {
             on_path.insert(self.selection);
             on_path.extend(Self::ancestors_of(model, self.selection));
         }
-        let mut out = vec![Row::Node {
+        let mut out = Vec::new();
+        if self.view_root != NodeId::ROOT {
+            out.push(Row::Parent);
+        }
+        out.push(Row::Node {
             id: self.view_root,
             depth: 0,
             parent_size: model.size(self.view_root, mode),
             last: true,
             trail: 0,
-        }];
+        });
         self.push_children(model, mode, self.view_root, 1, 0, &on_path, &mut out);
         out
     }
@@ -172,7 +182,9 @@ impl TreeState {
     }
 
     fn set_cursor(&mut self, row: Row) {
+        self.on_parent = matches!(row, Row::Parent);
         match row {
+            Row::Parent => self.aggregate = None,
             Row::Node { id, .. } => {
                 self.selection = id;
                 self.aggregate = None;
@@ -188,6 +200,7 @@ impl TreeState {
     pub fn prepare(&mut self, model: &Model, mode: SizeMode, height: usize) {
         let height = height.max(1);
         self.page = height;
+        self.on_parent &= self.view_root != NodeId::ROOT;
         self.restore_selection(model);
         let mut rows = self.build_rows(model, mode);
         let idx = match self.cursor_index(&rows) {
@@ -235,7 +248,7 @@ impl TreeState {
             .iter()
             .filter_map(|r| match r {
                 Row::Node { id, .. } => Some(*id),
-                Row::Aggregate { .. } => None,
+                Row::Parent | Row::Aggregate { .. } => None,
             })
             .collect();
         if !visible.contains(&self.selection) {
@@ -270,7 +283,9 @@ impl TreeState {
             Action::Top => self.move_to(&rows, idx, 0),
             Action::Bottom => self.move_to(&rows, idx, last),
             Action::Right => self.right(model, &rows, idx),
+            Action::Left if matches!(rows[idx], Row::Parent) => self.zoom_out(model, events),
             Action::Left => self.left(model, &rows, idx),
+            Action::Enter if matches!(rows[idx], Row::Parent) => self.zoom_out(model, events),
             Action::Enter => {
                 if let Row::Node { id, .. } = rows[idx]
                     && id != self.view_root
@@ -278,19 +293,24 @@ impl TreeState {
                 {
                     self.view_root = id;
                     self.expanded.insert(id);
-                    self.line = 0;
+                    // The `..` row is now row 0 and the view root row is row 1.
+                    self.line = 1;
                     events.push(AppEvent::ZoomChanged { view_root: id });
                 }
             }
-            Action::ZoomOut => {
-                if let Some(parent) = model.parent(self.view_root) {
-                    self.selection = self.view_root;
-                    self.aggregate = None;
-                    self.view_root = parent;
-                    events.push(AppEvent::ZoomChanged { view_root: parent });
-                }
-            }
+            Action::ZoomOut => self.zoom_out(model, events),
             _ => {}
+        }
+    }
+
+    /// One level up; the selection becomes the folder we came from.
+    pub fn zoom_out(&mut self, model: &Model, events: &mut Vec<AppEvent>) {
+        if let Some(parent) = model.parent(self.view_root) {
+            self.selection = self.view_root;
+            self.aggregate = None;
+            self.on_parent = false;
+            self.view_root = parent;
+            events.push(AppEvent::ZoomChanged { view_root: parent });
         }
     }
 
@@ -305,6 +325,7 @@ impl TreeState {
         self.expanded.extend(Self::ancestors_of(model, id));
         self.selection = id;
         self.aggregate = None;
+        self.on_parent = false;
     }
 
     fn move_to(&mut self, rows: &[Row], from: usize, to: usize) {
@@ -315,6 +336,7 @@ impl TreeState {
 
     fn right(&mut self, model: &Model, rows: &[Row], idx: usize) {
         match rows[idx] {
+            Row::Parent => {}
             Row::Aggregate { dir, .. } => *self.revealed.entry(dir).or_insert(0) += 1,
             Row::Node { id, depth, .. } => {
                 if model.kind(id) != Kind::Dir {
@@ -334,6 +356,7 @@ impl TreeState {
 
     fn left(&mut self, model: &Model, rows: &[Row], idx: usize) {
         match rows[idx] {
+            Row::Parent => {}
             Row::Aggregate { dir, .. } => {
                 self.selection = dir;
                 self.aggregate = None;

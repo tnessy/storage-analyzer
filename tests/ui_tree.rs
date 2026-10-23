@@ -6,9 +6,12 @@ mod synthetic;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Modifier;
 use storage_analyzer::APP_ID;
 use storage_analyzer::app::cli;
+use storage_analyzer::app::map_state::Pane;
 use storage_analyzer::app::state::AppState;
 use storage_analyzer::app::tree_state::{AGGREGATE_PAGE, AppEvent, Row};
 use storage_analyzer::scan::ScanMsg;
@@ -62,7 +65,7 @@ fn ids(state: &AppState) -> Vec<NodeId> {
         .iter()
         .filter_map(|r| match r {
             Row::Node { id, .. } => Some(*id),
-            Row::Aggregate { .. } => None,
+            Row::Parent | Row::Aggregate { .. } => None,
         })
         .collect()
 }
@@ -796,4 +799,319 @@ fn the_aggregate_row_is_the_last_branch() {
     let agg = row_with(&pane, "smaller");
     assert!(agg.contains("└── (10 smaller"), "{agg}");
     assert!(row_with(&pane, "f49").contains("├── f49"));
+}
+
+fn draw_buf(state: &mut AppState, w: u16, h: u16) -> Buffer {
+    state.prepare_view(Rect::new(0, 0, w, h));
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+    terminal.draw(|f| ui::render(f, state)).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn buf_row(buf: &Buffer, y: u16) -> String {
+    (0..buf.area.width)
+        .map(|x| buf[(x, y)].symbol().to_owned())
+        .collect()
+}
+
+/// The screen row of the selected tree row (the one with `>` in column 1).
+fn selected_y(buf: &Buffer, w: u16, h: u16) -> u16 {
+    let main = ui::regions(Rect::new(0, 0, w, h)).main;
+    (main.y..main.bottom())
+        .find(|&y| buf[(0, y)].symbol() == ">")
+        .unwrap_or_else(|| {
+            panic!(
+                "no selected row:\n{}",
+                (0..h)
+                    .map(|y| buf_row(buf, y))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        })
+}
+
+fn two_level_state() -> (AppState, Vec<NodeId>) {
+    let mut scan = Scan::new();
+    let kids = scan.list(ROOT, vec![folder("alpha"), file("beta.txt", 40)]);
+    scan.list(kids[0], vec![file("inner.bin", 60)]);
+    let mut state = app_state(scan);
+    press(&mut state, &[KeyCode::Down, KeyCode::Right]);
+    (state, kids)
+}
+
+#[test]
+fn tree_focus_selection_is_reverse_bold_across_the_pane_and_never_dim() {
+    let (mut state, _) = two_level_state();
+    let buf = draw_buf(&mut state, 80, 24);
+    let y = selected_y(&buf, 80, 24);
+    assert!(buf_row(&buf, y).contains("alpha/"));
+    for x in 0..80 {
+        let m = buf[(x, y)].modifier;
+        assert!(
+            m.contains(Modifier::REVERSED | Modifier::BOLD),
+            "col {x}: {m:?}"
+        );
+        assert!(!m.contains(Modifier::DIM), "col {x} is dim");
+    }
+    // Rows below (with guides) are not reversed.
+    assert!(!buf[(40, y + 1)].modifier.contains(Modifier::REVERSED));
+}
+
+#[test]
+fn map_focus_selection_is_bold_with_the_name_underlined_and_not_reversed() {
+    let (mut state, _) = two_level_state();
+    press(&mut state, &[KeyCode::Tab]);
+    assert_eq!(state.focus, Pane::Map);
+    let buf = draw_buf(&mut state, 80, 24);
+    let y = selected_y(&buf, 80, 24);
+    let row = buf_row(&buf, y);
+    let at = row.find("alpha/").expect("name");
+    let col = row[..at].chars().count() as u16;
+    for x in 0..80 {
+        let m = buf[(x, y)].modifier;
+        assert!(!m.contains(Modifier::REVERSED), "col {x}");
+        assert!(
+            m.contains(Modifier::BOLD) || row.chars().nth(x as usize) == Some(' '),
+            "col {x}"
+        );
+    }
+    for x in col..col + 6 {
+        assert!(
+            buf[(x, y)].modifier.contains(Modifier::UNDERLINED),
+            "name col {x}"
+        );
+    }
+    assert!(!buf[(col - 2, y)].modifier.contains(Modifier::UNDERLINED));
+}
+
+fn zoomed(depth_names: &[&str]) -> (AppState, Vec<NodeId>) {
+    let mut scan = Scan::new();
+    let mut parent = ROOT;
+    let mut chain = Vec::new();
+    for name in depth_names {
+        let kids = scan.list(parent, vec![folder(name), file(&format!("{name}.sib"), 1)]);
+        chain.push(kids[0]);
+        parent = kids[0];
+    }
+    scan.list(parent, vec![file("leaf", 5)]);
+    (app_state(scan), chain)
+}
+
+fn pane(buf: &Buffer, w: u16, h: u16) -> Vec<String> {
+    let main = ui::regions(Rect::new(0, 0, w, h)).main;
+    (main.y..main.bottom()).map(|y| buf_row(buf, y)).collect()
+}
+
+#[test]
+fn the_parent_row_appears_only_when_zoomed_and_sits_above_the_view_root() {
+    let (mut state, chain) = zoomed(&["aaa"]);
+    let rows = pane(&draw_buf(&mut state, 100, 24), 100, 24);
+    assert!(
+        !rows.iter().any(|r| r.contains("..  (up to")),
+        "{}",
+        rows.join("\n")
+    );
+
+    press(&mut state, &[KeyCode::Down, KeyCode::Enter]);
+    let buf = draw_buf(&mut state, 100, 24);
+    let rows = pane(&buf, 100, 24);
+    assert!(
+        rows[0].contains("..  (up to /synthetic/root)"),
+        "{}",
+        rows.join("\n")
+    );
+    assert!(
+        rows[0].trim_start().starts_with(".."),
+        "blank size columns: {}",
+        rows[0]
+    );
+    assert!(
+        rows[1].starts_with('>') && rows[1].contains("aaa/"),
+        "{}",
+        rows.join("\n")
+    );
+    assert_eq!(state.tree.selection, chain[0]);
+    assert!(!state.tree.on_parent);
+}
+
+#[test]
+fn up_on_the_view_root_reaches_the_parent_row_and_up_again_stays() {
+    let (mut state, _) = zoomed(&["aaa"]);
+    press(&mut state, &[KeyCode::Down, KeyCode::Enter, KeyCode::Up]);
+    assert!(state.tree.on_parent);
+    let rows = pane(&draw_buf(&mut state, 100, 24), 100, 24);
+    assert!(rows[0].starts_with('>'), "{}", rows.join("\n"));
+    press(&mut state, &[KeyCode::Up]);
+    assert!(state.tree.on_parent);
+    press(
+        &mut state,
+        &[KeyCode::Down, KeyCode::Down, KeyCode::Char('g')],
+    );
+    assert!(state.tree.on_parent, "g goes to the parent row");
+}
+
+#[test]
+fn parent_row_is_selected_like_any_row() {
+    let (mut state, _) = zoomed(&["aaa"]);
+    press(&mut state, &[KeyCode::Down, KeyCode::Enter, KeyCode::Up]);
+    let buf = draw_buf(&mut state, 100, 24);
+    let y = selected_y(&buf, 100, 24);
+    assert!(buf_row(&buf, y).contains("..  (up to"));
+    for x in 0..100 {
+        assert!(
+            buf[(x, y)]
+                .modifier
+                .contains(Modifier::REVERSED | Modifier::BOLD),
+            "col {x}"
+        );
+    }
+}
+
+#[test]
+fn enter_on_the_parent_row_equals_backspace_and_selects_the_folder_you_left() {
+    let (mut a, chain) = zoomed(&["aaa", "bbb"]);
+    press(
+        &mut a,
+        &[KeyCode::Down, KeyCode::Enter, KeyCode::Down, KeyCode::Enter],
+    );
+    assert_eq!(a.tree.view_root, chain[1]);
+    let (mut b, _) = zoomed(&["aaa", "bbb"]);
+    press(
+        &mut b,
+        &[KeyCode::Down, KeyCode::Enter, KeyCode::Down, KeyCode::Enter],
+    );
+
+    press(&mut a, &[KeyCode::Up, KeyCode::Enter]);
+    press(&mut b, &[KeyCode::Backspace]);
+    for s in [&a, &b] {
+        assert_eq!(s.tree.view_root, chain[0]);
+        assert_eq!(s.tree.selection, chain[1], "the folder you came from");
+        assert!(!s.tree.on_parent);
+    }
+    assert_eq!(a.events, b.events);
+}
+
+#[test]
+fn backspace_from_a_deep_zoom_selects_the_folder_left_at_each_level() {
+    let (mut state, chain) = zoomed(&["aaa", "bbb", "ccc"]);
+    for _ in 0..3 {
+        press(&mut state, &[KeyCode::Down, KeyCode::Enter]);
+    }
+    assert_eq!(state.tree.view_root, chain[2]);
+    for level in (0..3).rev() {
+        press(&mut state, &[KeyCode::Backspace]);
+        assert_eq!(state.tree.selection, chain[level], "level {level}");
+        assert_eq!(
+            state.tree.view_root,
+            if level == 0 { ROOT } else { chain[level - 1] }
+        );
+    }
+    assert_eq!(
+        state.events.last(),
+        Some(&AppEvent::ZoomChanged { view_root: ROOT })
+    );
+}
+
+#[test]
+fn left_and_h_and_minus_go_up_from_the_parent_row_but_right_does_nothing() {
+    for up in [
+        KeyCode::Left,
+        KeyCode::Char('h'),
+        KeyCode::Char('-'),
+        KeyCode::Enter,
+        KeyCode::Backspace,
+    ] {
+        let (mut state, chain) = zoomed(&["aaa"]);
+        press(
+            &mut state,
+            &[KeyCode::Down, KeyCode::Enter, KeyCode::Up, up],
+        );
+        assert_eq!(state.tree.view_root, ROOT, "{up:?}");
+        assert_eq!(state.tree.selection, chain[0]);
+    }
+    for noop in [KeyCode::Right, KeyCode::Char('l')] {
+        let (mut state, chain) = zoomed(&["aaa"]);
+        press(
+            &mut state,
+            &[KeyCode::Down, KeyCode::Enter, KeyCode::Up, noop],
+        );
+        assert_eq!(state.tree.view_root, chain[0]);
+        assert!(state.tree.on_parent);
+    }
+}
+
+#[test]
+fn d_p_x_r_on_the_parent_row_show_the_message_and_change_nothing() {
+    for key in ['d', 'p', 'x', 'r'] {
+        let (mut state, chain) = zoomed(&["aaa"]);
+        press(&mut state, &[KeyCode::Down, KeyCode::Enter, KeyCode::Up]);
+        let events = state.events.len();
+        press(&mut state, &[KeyCode::Char(key)]);
+        let screen = draw(&mut state, 100, 24);
+        let status = &screen[22];
+        assert!(
+            status.contains("\"..\" is the parent folder. Press ⏎ to go up."),
+            "{key}: {status}"
+        );
+        assert!(state.tree.on_parent && state.tree.view_root == chain[0]);
+        assert_eq!(state.events.len(), events, "no event, no request");
+        assert!(state.priority.is_none());
+    }
+    // Elsewhere those keys are not intercepted.
+    let (mut state, _) = zoomed(&["aaa"]);
+    press(
+        &mut state,
+        &[KeyCode::Down, KeyCode::Enter, KeyCode::Char('d')],
+    );
+    assert!(!draw(&mut state, 100, 24)[22].contains("parent folder"));
+}
+
+#[test]
+fn the_parent_row_is_never_inside_the_aggregate_or_counted_in_the_page() {
+    let mut scan = Scan::new();
+    let top = scan.list(ROOT, vec![folder("big")]);
+    scan.list(
+        top[0],
+        (0..60)
+            .map(|i| file(&format!("f{i:02}"), 1000 - i))
+            .collect(),
+    );
+    let mut state = app_state(scan);
+    press(&mut state, &[KeyCode::Down, KeyCode::Enter]);
+    let rows = pane(&draw_buf(&mut state, 120, 100), 120, 100);
+    assert!(rows[0].contains("..  (up to"));
+    assert_eq!(rows.iter().filter(|r| r.contains("..  (up to")).count(), 1);
+    assert!(
+        rows.iter().any(|r| r.contains("(10 smaller")),
+        "{}",
+        rows.join("\n")
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|r| r.contains("├── f") || r.contains("└── f"))
+            .count(),
+        50
+    );
+}
+
+#[test]
+fn long_parent_paths_are_cut_from_the_left() {
+    let long = "/home/nss/projects/an-extremely-long-project-directory-name/with/many/levels/here";
+    let mut scan = Scan::new();
+    scan.model = storage_analyzer::model::Model::new(
+        long.into(),
+        synthetic::entry("n", storage_analyzer::types::Kind::Dir, 0),
+        storage_analyzer::model::ModelOptions { top_n: 10 },
+    );
+    let kids = scan.list(ROOT, vec![folder("aaa")]);
+    scan.list(kids[0], vec![file("x", 1)]);
+    let mut state = app_state(scan);
+    press(&mut state, &[KeyCode::Down, KeyCode::Enter]);
+    let rows = pane(&draw_buf(&mut state, 80, 24), 80, 24);
+    assert!(
+        rows[0].contains("(up to …") && rows[0].trim_end().ends_with("here)"),
+        "{}",
+        rows[0]
+    );
+    assert!(ui::format::width(rows[0].trim_end()) <= 80);
 }
