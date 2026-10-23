@@ -22,7 +22,8 @@ Acceptance criteria:
    - `⏎` zooms, `⌫` goes up (same as the tree);
    - the key hints follow UX §6 "Map".
 6. **Sync (M4):** there is **one** `selection: NodeId` (from T016). Moving in the map updates the tree selection and scrolls the tree to it, and moving in the tree updates the highlighted tile. Selecting the aggregate tile selects no node, the tree keeps its selection, and the aggregate gets the double border.
-7. **Empty states** (UX §5.5): `Waiting for first results…`, `This folder is empty.`, and `N items, all 0 B. Nothing to map.`
+7. **Items not shown** (T014 ruling): `squarify` may drop items whose snapped tile is empty, including a sub-cell aggregate. Compute `not_shown = items.len() − tiles with Some(id)`. The aggregate tile's `(+N smaller)` uses that N. If no aggregate tile is rendered but `not_shown > 0`, show the UX-provided notice; copy is pending from UX, so ask Heimdall. Never drop them silently. Test: 1 huge item plus 3 tiny ones in a 10×6 map → the notice appears with N = 3.
+8. **Empty states** (UX §5.5): `Waiting for first results…`, `This folder is empty.`, and `N items, all 0 B. Nothing to map.`
 
 ## Design references
 §3.7, §3.9 (map strip and focus), §5 relayout ≤ 2 Hz. ADR-006. UX §3, §3.3, §5.5, §6, §7.

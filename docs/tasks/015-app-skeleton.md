@@ -11,7 +11,7 @@ The first usable build and the proof of brief M1:
 - quit always asks first (M12, idle variant).
 
 Acceptance criteria:
-1. **CLI** (design §4): `PATH` (default `.`), `-x/--one-file-system` (the default), `--cross-filesystems`, `--apparent`, `--threads N`, `--top N`, `--history`, `--no-animation`, `--cell-aspect F`. Parse them all now; tasks that need a flag read it from `AppConfig`. The name in help and messages comes from `env!("CARGO_BIN_NAME")`; `APP_ID` is used for paths.
+1. **CLI** (design §4): `PATH` (default `.`), `-x/--one-file-system` (the default), `--cross-filesystems`, `--apparent`, `--threads N`, `--top N`, `--history`, `--no-animation`, `--cell-aspect F`. Parse them all now; tasks that need a flag read it from `AppConfig`. Validate `--cell-aspect` as finite and in 0.5–4.0, and `--threads`/`--top` as ≥ 1. An invalid value is a usage error with exit code 2 and no TUI (T014 review). The name in help and messages comes from `env!("CARGO_BIN_NAME")`; `APP_ID` is used for paths.
 2. **Pre-TUI** (UX §5.5 "Pre-TUI errors"): `statx` and open the root dir fd before the terminal is touched. Errors print `<bin>: <path>: no such file or directory | not a directory | permission denied` to stderr and exit with code 2. No TUI is drawn.
 3. **Terminal:** raw mode + alternate screen, with a guard that restores the terminal on drop. A **panic hook restores the terminal before printing** (design §4). SIGTERM/SIGHUP (signal-hook flag) restore the terminal and exit; T021 adds the delete-interrupt message.
 4. **Frame 0 before anything else** (design §3.3):
