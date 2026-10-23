@@ -50,4 +50,4 @@ Acceptance criteria:
 - **RealFs on a tempdir:** sizes equal `std::fs::symlink_metadata` (`blocks*512`, `len`). A symlink is reported as `Symlink` and not followed. A `chmod 000` dir gives `PermissionDenied`. Skip with a message when running as root.
 
 ## Out of scope
-du parity across fixture shapes (T007). Model changes. The probe (T019).
+du parity across fixture shapes (T007). Model changes.

@@ -1,6 +1,6 @@
 # Brief: storage-analyzer
 
-Status: v0.5, 2026-10-23. Labels: **Fact** (user stated), **Assumption**, **Open question**.
+Status: v0.6, 2026-10-23. Labels: **Fact** (user stated), **Assumption**, **Open question**.
 
 ## Problem
 - **Fact (user):** Analyze, diagnose and clean up disk space starting from a root folder.
@@ -31,7 +31,11 @@ Status: v0.5, 2026-10-23. Labels: **Fact** (user stated), **Assumption**, **Open
   - Given a running scan, then elapsed time is shown and updates at least once per second.
   - Given a running scan, then an ETA is shown and is revised as the scan proceeds. When it can't be estimated yet, it says so instead of showing a made-up number.
   - Given the scan finishes, then the indicator shows done and total elapsed time.
-  - **Open question (for architect):** A filesystem walk has no known total up front. How ETA is estimated (for example from used-space on the filesystem, or from a prior scan) is a design decision. The ETA's accuracy target is TBD; the user said benchmarks come later. The acceptance for ETA is that it is present, labeled as an estimate, and converges to 0 at completion.
+  - **Fact (v0.6, user decision):** An ETA is required only when a trustworthy total source exists: opt-in history, a previous scan of the same root in the same session, or a filesystem inode count. Probe and byte-based estimates are not used as an ETA (R3 showed the probe unreliable on real trees).
+  - Given a source exists, then the ETA is labeled as an estimate with its source, is revised as the scan proceeds, and reaches 00:00 at Done. No accuracy target (benchmarks later).
+  - Given no source exists (for example a first scan on btrfs with history off), then the indicator is indeterminate. It shows elapsed time, counts, rate, the minimum known queued folders, top-level progress, and "ETA unknown". It never shows a fabricated number or a percentage.
+  - Given the scan finishes, then "Done" and total elapsed time show, as before.
+  - The exact wording and layout are in design rev 7 / ADR-010 (architect) and the UX spec.
 - **M3 Tree view:** Navigable directory tree, largest first, with size and percent of parent. Orientation (**Fact**, confirmed by user): the root is at the top, children are listed beneath their parent, sorted by size descending by default.
   - Given the tree, when I expand/collapse or enter/leave a directory by keyboard, then sizes and percentages reflect that level.
 - **M4 Treemap:** Terminal treemap of the current directory, area proportional to size.
@@ -115,6 +119,13 @@ Closed in v0.3: tree orientation, whole-root scope for file types and largest fi
 - Decision: Layout A chosen. Delete allowed during scan with "≥" lower-bound counts. Zoom and `p` both prioritise a folder's scan. Scan controls `p`/`x`/`r`, shallow-first scanning, and the quit confirmation are in scope (M11, M12). `--max-depth` rejected for now. Command name is a TBD placeholder.
 - Evidence: User decisions.
 - Revisit if: Users delete the wrong thing because of partial counts, or large roots make shallow-first scanning too slow to show useful top-level sizes.
+
+### 2026-10-23: ETA only when a source exists (M2 revised)
+- Context: Spike R3 showed the Knuth probe ETA is unreliable on real trees. On the user's btrfs `/home` there are no inode counts, and history is off by default.
+- Options: Keep a weak probe or byte-based ETA; turn history on by default; accept indeterminate progress on a first scan.
+- Decision: Accept indeterminate progress when no source exists. History stays opt-in. No weak byte-based ETA. When a source exists, the ETA is required (labeled, revised, 00:00 at Done).
+- Evidence: R3 spike results (reported by team-lead; I have not read them). User decision.
+- Revisit if: The user finds first-scan progress unhelpful, in which case history on by default is the main lever.
 
 ## Pending user input (as of v0.5)
 - Confirmation of mockup A1 (still unconfirmed in what I've been told).

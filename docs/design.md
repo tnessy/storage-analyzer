@@ -2,7 +2,7 @@
 
 > **Name placeholder:** the command name is TBD. Docs use `<cmd>` for the command and `<app-id>` for directory names. Code MUST NOT hardcode it: one constant `APP_ID` (used for XDG paths and config) and the binary name taken from Cargo (`env!("CARGO_BIN_NAME")`) for messages. Renaming then means changing `Cargo.toml` + `APP_ID` only.
 
-Status: **accepted**, rev 7, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
+Status: **accepted** (§3.6 provisional), rev 7, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
 
 Rev 7 (2026-10-23): spike R3 failed, so the Knuth probe is removed. The ETA now comes from history (opt-in), an in-session previous scan, or the inode count; otherwise an honest `Indeterminate` progress state (§3.6, ADR-010). `ProbeMsg` and the probe thread are removed (plan D9 retracted).
 
@@ -203,6 +203,7 @@ Indexes, all updated in `apply`:
 
 ### 3.6 ETA (ADR-005)
 - **Work unit:** entries (directory entries `statx`'d), not bytes. Scan cost is per-entry syscalls. Bytes only proxy for time (**assumption**, checked by spike R3).
+- **PROVISIONAL (rev 7):** the R3 verdict covers only the all-entries probe variant. The subfolder-only descent rerun is pending. The decision rule and estimator are in ADR-010. If the rerun is usable, the probe returns as source 4 (`rough`), and Indeterminate remains the fallback.
 - **Spike R3 result (fact, `spikes/r3-probe/REPORT.md`):** the Knuth probe is unbiased but unusable on real trees.
   - On `$HOME` (19.46 M entries), 96–98 % of seeds are below 0.5× the truth; the median ratio is 0.001–0.005.
   - On `/usr` and a node_modules project, 72–92 % of seeds are below 0.5×, with rare overshoots of about 84× in ETA error.

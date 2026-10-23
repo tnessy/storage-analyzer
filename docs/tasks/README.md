@@ -30,7 +30,7 @@ Task-specific commands (single test, ignored or privileged tests) are in each br
 - Rust stable 1.99. ratatui 0.30, crossterm 0.29, rustix 1.x. Plain std threads and channels; no async runtime.
 - Types are `UpperCamel` nouns. Units go in names: `*_bytes`, `*_ms`.
 - Core modules (`scan`, `delete`, `model`, `history`) return typed error enums that keep the `errno`. No `unwrap`/`expect` on I/O paths. `unwrap` in tests is fine.
-- Only the main thread mutates the model/`AppState`. Other threads talk only through `ScanMsg`, `DeleteEvent`, `DeleteRequest`, the probe estimate, and `ScanControl`.
+- Only the main thread mutates the model/`AppState`. Other threads talk only through `ScanMsg`, `DeleteEvent`, `DeleteRequest`, and `ScanControl` (the probe was removed by ADR-010).
 - **Only `delete` (user data) and `history` (own state file, opt-in) may write to the filesystem.** `tests/write_guard.rs` enforces this.
 - Never follow symlinks. Use raw bytes for filesystem operations; decode lossily **only for display**, and sanitize names before rendering.
 - User-facing text lives only in `src/ui/` (copy constants in `src/ui/copy.rs`). The command name is never a string literal: use `APP_ID` or `env!("CARGO_BIN_NAME")`.

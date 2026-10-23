@@ -21,7 +21,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
    | M5 file-type totals | per-ext/per-category size + count over the whole root, sorted by size, live | T005 (model), T018 (view) |
    | M6 live largest files | top-N updates between batches of `ScanMsg`, `--top N` honored | T005 (model), T018 (view) |
    | M11 shallow-first | queue order unit test, plus a walker test that level-1 is listed before any level-3 dir completes | T004, T006 |
-   | M1 first frame ≤ 1 s | headless app test, frame 0 drawn before any worker/probe/history starts and within 1 s | T015 |
+   | M1 first frame ≤ 1 s | headless app test, frame 0 drawn before any worker or history read starts and within 1 s | T015 |
 6. **One-filesystem hint (new).** When the default one-filesystem mode skips mounts or btrfs subvolumes, the status line shows a hint (for example, scanning `/` skips `/home`). Built in T020, using the UX-approved wording in `ux/spec.md` §5.2.
 7. **Spikes R1–R5** are scheduled early: R3 first (T002), R1 right after the model core (T008), R2/R4/R8 right after the walker (T009), and R5 right after layout + walker (T022).
 
@@ -34,7 +34,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | delete | engineer-1 | `src/delete/**` (except `msg.rs`) |
 | scan/model/delete integration tests | engineer-1 | `tests/scan_*.rs`, `tests/delete_*.rs`, `tests/model_*.rs`, `tests/support/fixtures.rs` |
 | spikes R1, R2/R4/R8 | engineer-1 | `spikes/r1-memory/**`, `examples/scan_harness.rs` |
-| app, ui, eta, layout, probe, history | engineer-2 | `src/main.rs` (after T001), `src/app/**`, `src/ui/**`, `src/eta/**` (except `contract.rs`), `src/layout/**` (except `contract.rs`), `src/probe/**`, `src/history/**` |
+| app, ui, eta, layout, history | engineer-2 | `src/main.rs` (after T001), `src/app/**`, `src/ui/**`, `src/eta/**` (`contract.rs` only via the T013 delta), `src/layout/**` (except `contract.rs`), `src/history/**` |
 | UI/app tests | engineer-2 | `tests/app_*.rs`, `tests/ui_*.rs`, `tests/snapshots/**`, `tests/support/synthetic.rs` |
 | spikes R3, R5 | engineer-2 | `spikes/r3-probe/**`, `examples/spike_r5_jitter.rs` |
 | Plan, briefs, review notes | Heimdall | `docs/plan.md`, `docs/tasks/**` |
@@ -66,7 +66,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T004 | e1 | Scan job queue: shallow-first, focus re-key, frontier cap | T001 |
 | T006 | e1 | Walker: workers, real fs, errors, one-filesystem, ScanControl, rescan | T004 |
 | T007 | e1 | M8 du-parity + M10 robustness integration suite | T003, T006 |
-| T013 | e2 | ETA estimator (pure) + EWMA rate | T001 |
+| T013 | e2 | ETA estimator (pure) + EWMA rate + ADR-010 contract delta | T001 |
 | T014 | e2 | Layout: squarify + neighbor (pure) | T001 |
 | T015 | e2 | App skeleton: CLI, pre-TUI checks, terminal, event loop, frame 0, elapsed, idle quit | T001, T003 |
 | T016 | e2 | Tree view: rows, sort, %, markers, selection, zoom | T015 |
@@ -82,7 +82,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T011 | e1 | Model delete: delete_check, refusals, reconciliation incl. aborted-unfinished | T005, T010, T012 |
 | T017 | e2 | Treemap widget, map focus, tree ↔ map sync | T014, T016, T005 |
 | T018 | e2 | Types, Largest, Skipped views | T016, T005 |
-| T019 | e2 | Probe module, opt-in history, ETA in status line | T002, T013, T015, T006 |
+| T019 | e2 | ETA sources (history, in-session, inodes) + progress status | T013, T015, T003 |
 | T020 | e2 | Scan-control keys (p/zoom/x/r/s), messages, one-filesystem hint | T016, T018, T012 |
 | T021 | e2 | Delete, result and quit-during-delete dialogs + delete flow | T010, T011, T018, T020, T023 |
 | T023 | e2 | Size toggle, help, too-small, NO_COLOR/ASCII/contrast, snapshot set | T017, T018 |
@@ -96,7 +96,7 @@ Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T00
 ### Critical path
 T001 → T003 → T004 → T006 → T005 → T010 → T012 → T011 → T021. The delete executor (T010) has only T001 as a dependency. If engineer-1 is ahead, they may pull it earlier, to leave time for the second review.
 
-**Hold (2026-10-23):** T013 and T019 acceptance criteria are on hold until the architect's ADR-005 revision lands, which follows R3 (T002). T013 must not start until then. T002 is in rework: the second estimator variant must be measured before the probe verdict is final.
+**ETA revision (2026-10-23):** the user approved ADR-010 / design rev 7. The probe is removed. T013 and T019 were rewritten, and the hold is lifted. T019's status copy waits for UX's §5.2 update. T003 gains `top_level_progress()`, which T011 and T012 keep correct. R1 (T008) now measures 20 M entries.
 
 ## 4. Integration checkpoints
 1. **After T001:** `cargo build`, and the write-guard test passes. Contracts are frozen.
@@ -120,7 +120,7 @@ The design left these open. I made them so the briefs are complete. Each one has
 - **D5 (UX): tree aggregate rule.** `ux/spec.md` shows `(N smaller, SIZE)` rows but doesn't say when to group. Proposed: an expanded folder shows its 50 largest children, and the rest become one aggregate row (matching "50 rows at a time" on expand). The threshold is a constant.
 - **D6 (UX): `x` on a folder that is already complete** does nothing and shows `Already fully scanned.` (constant).
 - **D7 (contracts):** some types the design implies but doesn't spell out are defined in T001: `ScanState`, `SizeMode`, `Refusal`, `Reconcile`, `ScanHandle`, `DeleteHandle`, `ScanTotals`, `FsAccess`. Their meaning follows design §3.3–§3.11.
-- **D9 (contracts): `ProbeMsg::Estimate { total_entries }`** is a channel from the probe thread to the main thread. Design §4 lists four message types; the probe estimate is a fifth that the design implies (§3.2 diagram) but doesn't define. It is local to engineer-2's modules (T019).
+- **D9: RETRACTED** (ADR-010 removed the probe). Original text: `ProbeMsg::Estimate { total_entries }` is a channel from the probe thread to the main thread. Design §4 lists four message types; the probe estimate is a fifth that the design implies (§3.2 diagram) but doesn't define. It is local to engineer-2's modules (T019).
 - **D8 (contracts):** `DeleteFailKind` follows design §4 (no `Vanished`; ENOENT counts as success), not §3.10. §4 is the contract.
 
 ## 6. Open items needing someone else

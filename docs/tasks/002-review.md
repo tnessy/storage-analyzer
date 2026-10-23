@@ -17,3 +17,11 @@
 Then update the recommendation. Until this lands, the architect's ADR-005 revision should not treat "the probe is unusable" as settled.
 
 **Files:** `spikes/r3-probe/**` only, as before.
+
+## Update 2026-10-23: verdict revised after ADR-010
+The user approved ADR-010 (probe removed) using these results. So variant B no longer gates any decision.
+- **Still required:** fix the device-ID statement on `REPORT.md` line 3. After that, T002 is **approved** and committed as the R3 record.
+- **Now optional:** item 1 (variant B, subdirectory descent) and item 3 (BFS `seen + pending_dirs`). Item 3 is the architect's optional R3b. Variant B is input for an ADR-010 revisit, not v1 work.
+- **Flagged to the architect via the team lead:**
+  1. Design §3.6 and ADR-010 say "the Knuth probe is unbiased but unusable on real trees". That holds for the all-children variant measured here, not for every probe estimator. Scope the wording to that variant.
+  2. The design §3.6 table's `Indeterminate` row says "before 2 s, Estimating", while the `Estimating` row requires a source. Per the team lead, T013 returns `Estimating` only when a source exists. Please make the table consistent.

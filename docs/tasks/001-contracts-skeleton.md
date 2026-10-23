@@ -25,7 +25,7 @@ Acceptance criteria:
 - `src/delete/mod.rs`, `src/delete/msg.rs`
 - `src/eta/mod.rs`, `src/eta/contract.rs`
 - `src/layout/mod.rs`, `src/layout/contract.rs`
-- `src/probe/mod.rs`, `src/history/mod.rs`, `src/app/mod.rs`, `src/ui/mod.rs` (empty module files with a one-line doc comment)
+- `src/probe/mod.rs` (removed later by T013 per ADR-010), `src/history/mod.rs`, `src/app/mod.rs`, `src/ui/mod.rs` (empty module files with a one-line doc comment)
 - `tests/write_guard.rs`, `tests/no_name_literal.rs`
 
 ## Dependencies to add (all of them now; nobody edits `Cargo.toml` after this)
@@ -83,7 +83,7 @@ impl DeleteHandle { pub fn submit(&self, req: DeleteRequest) -> Result<(), Busy>
                     pub fn stop(&self); pub fn wait_idle(&self, max: Duration) -> bool; }
 ```
 
-In `src/eta/contract.rs`: `EtaInput`, `EtaSource { History, FsInodes, Probe }`, `EtaView` (design §4). In `src/eta/mod.rs`: `pub fn view(input: &EtaInput) -> EtaView` stub (→ T013).
+In `src/eta/contract.rs`: `EtaInput`, `EtaSource`, `EtaView` (design §4). **Superseded by ADR-010 (design rev 7):** `EtaSource { History, SessionPrevious, FsInodes }`, `EtaInput` gains `top_done`/`top_total` and `rate_eps: Option<f64>`, `EtaView` gains `Indeterminate`, and `src/probe/` is removed. T001 shipped the old shape; T013 Part A applies the delta. In `src/eta/mod.rs`: `pub fn view(input: &EtaInput) -> EtaView` stub (→ T013).
 
 In `src/layout/contract.rs`: `Tile { id: Option<NodeId>, rect: ratatui::layout::Rect }`, `Direction { Up, Down, Left, Right }`. In `src/layout/mod.rs`: `squarify(items: &[(NodeId, u64)], area: Rect, cell_aspect: f32) -> Vec<Tile>` and `neighbor(tiles: &[Tile], from: usize, dir: Direction) -> Option<usize>` stubs (→ T014).
 

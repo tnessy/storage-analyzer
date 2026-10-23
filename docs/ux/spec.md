@@ -62,7 +62,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 ║                         ║│                      │┌ Projects/ 19.6G ┐┌ Dow…┐
 ║                         ║│                      ││ 11% [C]         ││ 7% !│
 ╚═════════════════════════╝└──────────────────────┘└─────────────────┘└─────┘
- ◌ Scanning [██████▋░░░░░░░░░] ~41%  01:12 elapsed  ETA ~01:44 (estimate, rough)
+ ◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown
  ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help
 ```
 
@@ -152,9 +152,10 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 ### 5.2 Status line
 | State | Text |
 |---|---|
-| Starting | `◌ Starting…  00:00 elapsed  ETA estimating…` |
-| Scanning | `◌ Scanning [bar] ~41%  01:12 elapsed  ETA ~01:44 (estimate, rough)`. The source label is `rough`, `last scan` or `filesystem`, following design §3.6. |
-| Past estimate | `◌ Scanning [bar] ~99%  04:02 elapsed  ETA unknown (past estimate)` |
+| Starting (first 2 s, `Estimating`) | `◌ Starting…  00:00 elapsed  ETA estimating…` |
+| Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41k/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
+| Scanning, ETA source exists (`Eta`) | `◌ Scanning [bar] ~41%  01:12 elapsed  ETA ~01:44 (estimate, last scan)`. The source label is **only** `last scan` (history file or an earlier scan this session) or `filesystem` (inode count), per design §3.6 / ADR-010. |
+| Past estimate (`OverEstimate`) | `◌ Scanning [bar] ~99%  04:02 elapsed  ETA unknown (past estimate)` |
 | With priority | `▲ First: .cache/` is placed before the scanning text. If it doesn't fit, the bar is dropped first. |
 | Done | `✓ Done in 03:51 · 1,204,331 files · 182.9 GiB · 3 skipped (press 4)`. ETA is 00:00. |
 | Done with skips by you | `✓ Done in 03:51 · … · sizes marked ≥ are partial` |
@@ -164,7 +165,30 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 | Deleting (unfinished) | `Deleting /home/nss/.cache/yay … 12,400 files removed` |
 | Transient message | Replaces the state text for 5 s or until the next key, then the state text returns. |
 
-- **Bar and percent:** `~%` comes from `EtaView.fraction`, which never shows 100% before Done.
+- **Bar and percent:** shown **only when an ETA source exists** (`Eta`, `OverEstimate`). `~%` comes from `EtaView.fraction`, which never shows 100% before Done. In `Indeterminate`, `K of M top-level done` is a count and never a bar or `%`.
+- **Indeterminate fields:**
+  - `K of M top-level done` is omitted until the root's first listing arrives, and when the root has no subfolders.
+  - `≥N folders queued` shows `pending_dirs` (k/M suffixes with 1 decimal) and drains to 0.
+  - Entries and bytes are seen-so-far totals.
+  - Rate is the EWMA in entries/s (`41k/s`).
+- **Source appears mid-scan:** the line switches `Indeterminate → Estimating → Eta` with no transient message. Its changed form is the signal.
+- **80-column drop order (Indeterminate):** fields are removed in this order until the line fits:
+  1. rate;
+  2. bytes;
+  3. entries;
+  4. the `(no previous scan)` qualifier;
+  5. `folders queued` shortens to `queued`;
+  6. `12 of 31` shortens to `12/31`;
+  7. the queued field;
+  8. the top-level field.
+
+  **Never dropped:** the state glyph and word, elapsed, and `ETA unknown`. At 80 columns with no prefix, the result is `◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown` (79 cols). With the `▲ First: …` prefix, the same order continues.
+- **80-column drop order (Eta):**
+  1. the bar shrinks from 16 to 10 cells;
+  2. `elapsed` shortens to its time only, after a `·` separator;
+  3. the bar is removed.
+
+  **Never dropped:** `~%`, `~` before the time, `estimate`, and the source label.
 - **Elapsed:** updates at least once per second.
 - **Spinner:** a frame that replaces the `◌`, at no more than 10 fps. It is off with `--no-animation`.
 
@@ -337,6 +361,9 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 - Lists: `↑↓ move ⏎ show in tree d delete ? help`
 - If the hints don't fit, they are dropped from the right, but `? help` is always kept.
 
+**Help overlay (`?`), ETA note** (shown at the bottom of the overlay, one line, always present):
+`ETA appears when a previous complete scan of this root is known. Run with --history to remember scans between sessions (stores one small file under ~/.local/state).`
+
 ## 7. Visual system
 - **Text and chrome:** the terminal's default foreground and background. Dim text is used only for decoration such as tree guides, never for information.
 - **Selection and focus:** reverse video plus `>` marks selection. The focused pane's title is bold with `*`.
@@ -370,7 +397,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 | Req | Satisfied by |
 |---|---|
 | M1 | F1 frame 0, §5.5 Starting; input never waits for the scan (design §3.3) |
-| M2 | §5.2 status states (estimating, `~ETA (estimate, source)`, past estimate, Done with 00:00) |
+| M2 | §5.2 status states: estimating; `~ETA (estimate, source)` when a source exists; `Indeterminate` with `ETA unknown (no previous scan)` otherwise; past estimate; Done with 00:00. **Gap (design §3.6):** on a first scan without a source, the ETA is not "revised as the scan proceeds". project-owner is amending M2. |
 | M3 | §3.1–3.2 tree, root at top, largest first, % of parent, F2 |
 | M4 | §3.3 map scope, ADR-006 proportionality, shared selection |
 | M5 / M6 | F3 Types and Largest, whole root, live |
@@ -385,7 +412,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 | Should: stop | `s`, Stopped state |
 | Could: rescan | `r` |
 
-**Gaps:** export (Could) is not specified, and the opt-in history (`--history`) has no UI beyond the ETA source label. Both are intentional for v1.
+**Gaps:** export (Could) is not specified. The only UI for the opt-in history is the ETA source label and the help line in §6. Both are intentional for v1.
 
 ## 10. Usability risks and cheapest tests
 | Risk | Test |
@@ -400,7 +427,14 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 1. **80×24 snapshots** exist for: §3.1 scanning; Done; Stopped; empty folder; each view; each dialog in §5.3; too small (79×24). Each one is also rendered with `NO_COLOR=1` and with the ASCII fallback.
 2. **NO_COLOR** set: the rendered buffer has no cell with a non-default fg or bg color. Each §5.1 state is still distinguishable by its glyph or suffix text, and a test diffs the two buffers.
 3. **Contrast:** for each fill in §7 (and each 256-color mapping), `contrast(label, fill) ≥ 4.5`.
-4. **ETA:** never shows a number while `Estimating`. Always contains `~` and `estimate` when it is a number. Shows `00:00`, or `Done in`, after `Done`. `~%` is never `100` before Done.
+4. **ETA:**
+   - It never shows a number while `Estimating`.
+   - **In `Indeterminate`, the status line contains no `%`, no bar glyphs (`█▉▊▋▌▍▎▏░`), and no ETA digits.** The text after `ETA` must match `^ETA unknown` at 80, 120 and 200 columns.
+   - When it is a number, it always contains `~` and `estimate`.
+   - The source label is only `last scan` or `filesystem`, and never `rough`.
+   - After `Done`, it shows `00:00`, or `Done in`.
+   - `~%` is never `100` before Done.
+   - At 80 columns, the Indeterminate line still contains `Scanning`, the elapsed time and `ETA unknown`.
 5. **Elapsed** text changes at least once in each 1,000 ms window of a synthetic run.
 6. **Delete dialog:**
    - `Enter`, `n` and `Esc` produce no `DeleteRequest`.

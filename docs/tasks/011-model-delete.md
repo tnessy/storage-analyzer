@@ -39,7 +39,7 @@ Acceptance criteria:
    - **`Partial`:** clear the tombstone flags, add the failures to the issue list (they must never be silent), and return `Reconcile::Rescan(id)`. The app then runs `begin_rescan(id)` (T012).
    - **`Aborted` (D1, Odin gap 1):** clear `DELETING`/`TOMBSTONE` on the target **and every node under it**, and return `Reconcile::Rescan(id)`. After the app's rescan, the subtree is exact again. This is because confirming cancelled its pending jobs, and without a rescan it would stay incomplete forever.
    - `Progress` events return `Reconcile::None` and don't change the model.
-6. A failed delete must not leave any node `DELETING`.
+6. A failed delete must not leave any node `DELETING`. Deleting a top-level dir reduces `top_level_progress().1` (total), and its `done` contribution too if it was complete. Add a test.
 7. **Invariant (design §3.8, tested):** after any delete, the model totals equal `du` on the remaining tree.
 
 ## Design references

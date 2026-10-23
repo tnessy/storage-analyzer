@@ -17,9 +17,10 @@ Acceptance criteria:
    Put the subtree-removal logic in one function (`remove_subtree(id, keep_root: bool)`) in `src/model/control.rs`. T011 reuses it for `Removed`; do not duplicate it.
 
    Per D2, the app also calls `ScanControl::remove_prefixes_under(path)`.
-4. Late messages for `REMOVED` nodes, or for listings of dirs no longer in the model, are ignored without panicking.
-5. `set_focus(Some(id))` / `set_focus(None)`: when the focus node goes `!is_complete → is_complete`, `take_focus_completed()` returns it once, and the focus clears. The UI shows `✓ … fully scanned` (UX §5.4).
-6. After `Done { cancelled: true }` followed by `begin_rescan(root)` and the scan stream, the model ends `Done` with exact totals.
+4. `top_level_progress` (T003) stays correct through skip, rescan and stop: a rescan of a top-level dir decrements `done` until it completes again, and a skipped top-level dir counts as done (it is complete, not exact). Add a test.
+5. Late messages for `REMOVED` nodes, or for listings of dirs no longer in the model, are ignored without panicking.
+6. `set_focus(Some(id))` / `set_focus(None)`: when the focus node goes `!is_complete → is_complete`, `take_focus_completed()` returns it once, and the focus clears. The UI shows `✓ … fully scanned` (UX §5.4).
+7. After `Done { cancelled: true }` followed by `begin_rescan(root)` and the scan stream, the model ends `Done` with exact totals.
 
 ## Design references
 §3.5 Subtree rescan, §3.11 mechanics (`Cancelled`, `r` resume, `is_complete` vs `is_exact`, priority folder done), D2. ADR-009.

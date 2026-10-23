@@ -24,8 +24,14 @@ Acceptance criteria:
 8. `Done { cancelled }`: the state becomes `Done` or `Stopped`. With `cancelled`, every dir that is not `DONE` gets `INCOMPLETE`. `pending_dirs` stays unchanged, so `◌` stays (UX §5.5), and those dirs are not exact.
 9. `is_complete(id)` = file, or (`DONE` and `pending_dirs == 0`). `is_exact(id)` = `is_complete` and `inexact_dirs == 0`.
 10. `children_sorted(id, mode)` orders by (size desc, name bytes asc). `path`/`rel_path` are rebuilt from parents and names, using raw bytes (`OsStr::from_bytes`).
-11. `totals()` returns entries seen, files, dirs, root `pending_dirs`, and the root aggregates. `state()` returns `Starting` before the first message, `Scanning` after it, then `Done`/`Stopped`.
-12. Names live in one byte arena (no per-node `String`/`PathBuf`). Choose the physical layout you want (split file/dir tables are welcome). Design §5 sets a **target** of ≤ 120 B/entry, which T008 measures.
+11. **Amendment (ADR-010, 2026-10-23): `top_level_progress(&self) -> (u32 /*done*/, u32 /*total*/)`.**
+    - `total` = the number of directory children of the root that will be descended (not `OTHER_FS`), known after the root's listing.
+    - `done` = how many of them are `is_complete`.
+    - Maintain it incrementally (when a root child's `pending_dirs` reaches 0 with `DONE` set) so the query is **O(1)**. A root with 100 k children must not cost O(children) per tick.
+    - Add it to `src/model/mod.rs`, which you own. It is a new read method, consumed by T019.
+    - Test: in a hand-built stream, `done` increments exactly when each top-level dir completes. After `Done { cancelled: true }`, `done < total` when top-level dirs are unfinished.
+12. `totals()` returns entries seen, files, dirs, root `pending_dirs`, and the root aggregates. `state()` returns `Starting` before the first message, `Scanning` after it, then `Done`/`Stopped`.
+13. Names live in one byte arena (no per-node `String`/`PathBuf`). Choose the physical layout you want (split file/dir tables are welcome). Design §5 sets a **target** of ≤ 120 B/entry, which T008 measures.
 
 ## Design references
 §3.3 (ordering contract, id allocation), §3.4 (all of it), §3.10 per-folder complete flag, §3.11 `is_complete` vs `is_exact`. ADR-004.
