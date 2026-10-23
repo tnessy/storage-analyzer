@@ -131,4 +131,4 @@ The design left these open. I made them so the briefs are complete. Each one has
 | O2 | Types side panel ≥120 columns: build it or drop it | user via project-owner |
 | O3 | Do any measured targets become gates? (50 ms p95, 120 B/entry, thread default) | user via project-owner |
 | O6 | Brief M7 update for `≥` lower bounds (design §6 gap 4) | project-owner |
-| O7 | `r` on a still-scanning, unskipped folder re-walks the old subtree as ignored orphans (wasted I/O; results correct; see `tasks/006-review.md`). Options: a per-rescan generation, or treat it as `p`. Decide before T020 | architect + UX |
+| ~~O7~~ | **Closed (architect, design §3.11):** `r` on a still-scanning folder = `p` plus resume of the skipped folders inside it. No per-rescan generation (revisit only for v2 file watching). The rule lives in `Model::rescan_plan` (T012), and T020 executes it. The status text is pending from UX | — |

@@ -399,6 +399,13 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
     1. Remove the prefix from `cancelled_prefixes` (bumping `generation`).
     2. Clear the `SkippedByUser` issue and the `inexact_dirs` contribution up the chain.
     3. Run a subtree rescan (§3.5). The folder shows `◌` until complete, then `≥` clears.
+  - **`r` on a folder that is still scanning (`!is_complete`, not itself skipped) (plan O7):** it acts as **`p` plus resume**, not as a rescan.
+    1. Set focus to the folder (`▲`), exactly like `p`.
+    2. For every `SkippedByUser` node under it, do steps 1–3 above on that node only. Rescanning those is safe because their jobs were already dropped.
+    3. No rescan of the folder itself, so no duplicate jobs, no double reads, and `Done` is not delayed.
+    - The status line says `Still scanning: .cache/ moved to the front` (UX owns the copy).
+    - If the user really wants fresh data, `r` after the folder completes does a real rescan.
+    - **Rejected alternative: a per-rescan generation that cancels stale jobs.** It needs a generation on every job and message, plus a model mapping from old to new, for a case where a rescan would yield the same data as the scan already running. It may be reconsidered if a v2 adds file-watching or live refresh.
   - **For O3 delete:** the subtree is `TOMBSTONE`. It is removed on `Finished`.
 - **`is_complete` vs `is_exact`:** the complete flag now has two meanings:
   - `is_complete` means no scan work remains.

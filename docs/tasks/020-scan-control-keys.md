@@ -57,3 +57,17 @@ Command: `cargo test --test app_controls`.
 
 ## Out of scope
 The delete dialog's `p` (T021). Model internals (T012).
+
+## Amendment (2026-10-23): `r` on a folder still being scanned (O7 closed, design §3.11)
+- **`r` on a folder or tile:** call `Model::rescan_plan(id)` (T012) and execute it:
+  - **`Full`:** the existing rescan sequence (`app::rescan(id)`). The message is `◌ Resuming …` or the rescan text from UX §5.4.
+  - **`PrioritiseAndResume { resume }`:**
+    - set the priority exactly as `p` does (`ScanControl::set_focus`, `Model::set_focus`, `AppState.priority`). Unlike `p`, it doesn't toggle: if the folder is already the priority, it stays;
+    - then, for each node in `resume`, run `app::rescan(node)`;
+    - **never** call `ScanHandle::rescan` for the folder itself;
+    - show the status message **from UX**. The architect's placeholder is `Still scanning: .cache/ moved to the front`. UX owns the wording and has been asked, so take the text from `ux/spec.md` §5.4 when it lands, and ask Heimdall if it's missing.
+- **Skipped list (`4`):** `r` on a `skipped by you` row is the `Full` path for that row's node, as before.
+- **Tests (red first):**
+  - `r` on an unfinished folder sets the focus, shows the message, and calls no rescan for that folder. Use a recording `ScanStarter` handle, or count listings per path with `FakeFs`.
+  - `r` on an unfinished folder that has a skipped child resumes only that child.
+  - `r` on a complete folder does a full rescan.

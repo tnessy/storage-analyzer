@@ -54,3 +54,28 @@ Command: `cargo test --test model_controls`.
 
 ## Out of scope
 Key handling and status copy (T020). Delete tombstones (T011).
+
+## Amendment (2026-10-23): `r` on a folder still being scanned (O7, design §3.11)
+The architect's rule: `r` on a folder that is **not yet complete** means **prioritise it (`p`) and resume any skipped folders inside it**. No rescan of the folder itself, and no per-rescan generation. Once the folder is complete, `r` is a real rescan (`begin_rescan`).
+
+The rule lives in **one place, the model**, and T020 only executes it:
+- **Add** `Model::rescan_plan(id) -> RescanPlan`, a new read method in `src/model/mod.rs`:
+  ```rust
+  pub enum RescanPlan {
+      /// `id` is complete: run begin_rescan(id) + ScanHandle::rescan.
+      Full,
+      /// `id` is still scanning: focus it, and resume only these skipped folders inside it
+      /// (each: remove_prefixes_under, begin_rescan, ScanHandle::rescan).
+      PrioritiseAndResume { resume: Vec<NodeId> },
+  }
+  ```
+  `resume` lists the nodes at or under `id` that carry `SkippedByUser`, outermost only (a skipped folder inside another skipped folder is covered by its ancestor). Keep it bounded: walk only the issue list filtered by ancestry, not the whole subtree.
+- **Tests (red first):**
+  - a complete folder → `Full`;
+  - an incomplete folder with no skips → `PrioritiseAndResume { resume: [] }`;
+  - with two skipped folders inside it, one nested in the other → only the outer one;
+  - a skip *outside* `id` is not included.
+- **Acceptance test (integration, `FakeFs` + the real walker, `threads = 1`):** start a scan; skip folder `S` inside `F`; while `F` is still incomplete, run the app-side sequence for `rescan_plan(F)`: focus `F`, then for each resume node `remove_prefixes_under`, `begin_rescan` and `rescan`.
+  - **`F` itself gets no new job:** the scan's total `Listing` count equals an unskipped full scan's count plus 0 for `F`'s already-listed dirs. In other words, no dir outside `S` is listed twice. Assert it by counting listings per path.
+  - **`S` is listed afterwards.**
+  - **The totals at Done equal an unskipped scan.**
