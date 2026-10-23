@@ -52,3 +52,20 @@ Acceptance criteria:
 
 ## Out of scope
 du parity across fixture shapes (T007). Model changes.
+
+## Amendment (2026-10-23): bounded sends and shutdown (design §3.8 "Handle lifecycle", same rule for `ScanMsg`)
+- **Bounded sends:** workers never block forever on `tx.send`. Use `send` while scanning normally (backpressure is intended), but once `cancel_all` is set or the queue is closed, a worker uses `try_send` and drops the message on `Full`, so it can exit.
+  - `Done { cancelled: true }` may be dropped on exit. When the app is *not* exiting, `cancel_all` (the `s` key) is followed by continued draining, so `Done { cancelled: true }` does arrive.
+- **`shutdown()` returns within 2 s even with a full channel and a live receiver that is not draining.** Test this, red first, in addition to the existing dropped-receiver test.
+- `drain_queued()` after `cancel_all` (T004 fix) is part of this.
+
+## Amendment (2026-10-23): rescan refreshes the target's identity (design §3.8 Reconciliation; plan D11)
+A rescan job, unlike a normal job, first re-stats its own directory. It opens the path with the usual flags and `fstat`s the dir fd.
+- **Success:** send the new **`ScanMsg::Identity { dir, dev, ino }`** before the `Listing`.
+  - **Contract change, authorized** for `src/scan/msg.rs`: add exactly this variant.
+  - The model (T012) updates `dev`/`ino` for `dir`. This matters after `ChangedSinceScan`, so a retry of the delete passes the identity check.
+- **ENOENT on open:** send `DirIssue { dir, op: Open, kind: Vanished }`. For a rescan root, T012 removes the node.
+- **ENOTDIR on open** (a dir replaced by a file): send `DirIssue { Open, Other(ENOTDIR) }`.
+- **Tests:**
+  - a rescan after the dir is replaced by a new dir with the same name → `Identity` carries the new ino;
+  - a rescan after the dir is removed → `DirIssue(Vanished)`.

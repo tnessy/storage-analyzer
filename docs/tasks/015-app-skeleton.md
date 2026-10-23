@@ -70,3 +70,16 @@ Commands: `cargo test --test app_loop --test app_cli`, then `cargo run -- ~` to 
 ## Out of scope
 - Tree navigation (T016), map (T017), other views (T018), ETA text (T019), scan control keys (T020), delete (T021), help/too-small/NO_COLOR (T023).
 - The Types side panel at ≥ 120 columns is **deferred**: do not build it.
+
+## Amendment (2026-10-23): exit must never block (design §3.8 "Handle lifecycle")
+The main thread is the only receiver of `ScanMsg` (and later `DeleteEvent`), so it must never block on a worker while it is not draining that worker's channel.
+- **Exit order for the scan, in `src/app/terminal.rs` or `event_loop.rs`:**
+  1. `ScanControl::cancel_all()`;
+  2. **keep draining `ScanMsg`** (discarding the messages) while waiting at most 2 s for `ScanHandle::shutdown`, or drop the receiver first so that worker sends fail fast;
+  3. restore the terminal;
+  4. exit.
+
+  Never call `shutdown()` while the channel is full and nobody is reading it.
+- The panic hook and the SIGTERM/SIGHUP path follow the same rule. They are bounded and never wait unboundedly on a join.
+- **Test (red first):** a headless app with a scanner flooding a `sync_channel(1024)` that is full at the moment of `q y` → `App::run` returns within 2 s. Repeat the test via the SIGTERM path.
+- T021 extends this order for the delete executor.

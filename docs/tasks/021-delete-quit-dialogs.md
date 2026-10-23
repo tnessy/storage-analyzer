@@ -87,3 +87,16 @@ Commands: `cargo test --test app_delete --test app_quit`.
 
 ## Out of scope
 Executor and model internals (T010, T011). Trash and multi-select.
+
+## Amendment (2026-10-23): delete exit order (design §3.8 "Handle lifecycle")
+On `y` in the quit-while-deleting dialog, and on SIGTERM/SIGHUP during a delete:
+1. `DeleteHandle::stop()`;
+2. wait at most 2 s for `wait_idle`, **draining `DeleteEvent` while waiting** (poll `wait_idle` in short slices, and `try_recv` the events in between);
+3. drop the handle. Its `Drop` is bounded and detaches if needed (T010);
+4. apply the T015 scan exit order;
+5. restore the terminal;
+6. print the stderr line.
+
+The **"interrupted: N of M" numbers come from the last `Progress` received, or the executor's shared counters**, never from `Finished`, which may be dropped on exit.
+
+**Test (red first):** a delete running with a `sync_channel(1)` event channel that the test keeps full → `q y` exits within 2 s, and stderr carries the last known N.
