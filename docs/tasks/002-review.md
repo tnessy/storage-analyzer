@@ -25,3 +25,9 @@ The user approved ADR-010 (probe removed) using these results. So variant B no l
 - **Flagged to the architect via the team lead:**
   1. Design §3.6 and ADR-010 say "the Knuth probe is unbiased but unusable on real trees". That holds for the all-children variant measured here, not for every probe estimator. Scope the wording to that variant.
   2. The design §3.6 table's `Indeterminate` row says "before 2 s, Estimating", while the `Estimating` row requires a source. Per the team lead, T013 returns `Estimating` only when a source exists. Please make the table consistent.
+
+## Final verdict 2026-10-23: APPROVED, committed
+- The rework is verified. I re-ran `cargo test` (5 pass), clippy and fmt in `spikes/r3-probe`, and read `tree.rs` (`probe_once_subdirs`, `bfs_checkpoints`) and the revised `REPORT.md`.
+- The device-ID statement is fixed.
+- B and the BFS simulation are measured, and ADR-010 / design rev 9 record the result.
+- Process note: the variant-B tests weren't seen failing first. That is acceptable for throwaway spike code, but not for production tasks.
