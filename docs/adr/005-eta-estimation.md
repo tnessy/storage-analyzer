@@ -1,0 +1,13 @@
+# 005: ETA from entry counts, with prior-scan, fs-inode and Knuth-probe estimates
+- Status: superseded by ADR-010 (2026-10-23). History opt-in stays; the probe source is removed after spike R3.
+- Context: M2 requires an ETA that is labeled, revised, honest when unknown, and converges to 0. The total is unknown up front. Fact: btrfs statvfs reports f_files=0, so inode counts are unavailable on the user's /home. On btrfs, used bytes cover the whole filesystem and snapshots, not the root.
+- Options:
+  - Used bytes from statfs. Only meaningful at a mount root; on btrfs it is skewed by compression and snapshots, and bytes are a weak proxy for time.
+  - **Prior scan of the same root.** Accurate when the tree is stable. Needs a small state file.
+  - **Used inodes from statfs** (ext4/xfs, mount root only).
+  - **Knuth 1975 random-probe estimator.** Unbiased tree-size estimate from random descents. High variance on skewed trees.
+  - No ETA (fails M2).
+- Decision: The work unit is entries. Use the first available source in this order: prior scan (only if opted in), then fs inodes, then probe. Label the source in the UI ("est., last scan" / "est., rough"). Guard the total so it is never below seen + pending_dirs. Rate is an EWMA (tau 5 s). States: Estimating, Eta, OverEstimate, Done, Stopped. History is **off by default**; `--history` or the config key `history = true` enables it. When enabled, `$XDG_STATE_HOME/<app-id>/history.json (name TBD; from the APP_ID constant)` holds only the last complete scan per (root, options): entries, dirs, bytes, duration. It is written atomically. When disabled, no state file is read or written. The ETA also exposes `fraction` (clamped ≤ 0.99 until Done) for the UX `~%` bar.
+- Consequences: By default, every scan of a btrfs root (the user's /home) uses the rough probe ETA, labeled "estimate, rough". With history opted in, the second and later scans of a root get a good ETA. The probe adds roughly 64 x depth readdirs (it warms the cache).
+- Blast radius / reversibility: eta, probe, history modules. Pure interface; sources can be swapped.
+- Revisit if: R3 shows probe error > 2x at 50% progress (then show a range or hide it until N%). Also if the user wants history on by default.

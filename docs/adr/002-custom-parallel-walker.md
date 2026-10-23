@@ -1,0 +1,12 @@
+# 002: Custom parallel walker on fd-relative statx
+- Status: accepted (2026-10-23)
+- Context: M1 needs streaming results. M8 needs st_blocks, st_size, nlink, ino, dev, with no symlink following. Nodes must carry NodeIds, not paths (memory). We need a one-filesystem check, cancellation, subtree rescan, and fault injection for M10.
+- Options:
+  - **jwalk.** Parallel and sorted. Fact: docs.rs 0.9.0 marks it unmaintained and points to dua-core.
+  - **ignore::WalkParallel** (ripgrep's walker). Maintained and parallel, but path-based callbacks force path-to-node hashing. Its filtering defaults must be disabled.
+  - **dua-core.** Not evaluated in depth; its API stability is unknown (open question).
+  - **Custom.** Worker threads + shared job queue + openat/statx (rustix).
+- Decision: Custom, roughly 300-500 LOC. We borrow jwalk/gdu's directory-level parallelism and ncdu's compact nodes. We diverge by carrying NodeId in each job, sending listings in parent-before-child order, and putting all filesystem access behind a small trait for tests.
+- Consequences: We own the correctness of edge cases (EINTR, ENOENT races, deep trees). Tests in design §4 cover them. No dependency churn risk.
+- Blast radius / reversibility: The scan module only. The contract is ScanMsg, so a library could replace the internals later.
+- Revisit if: Spike R2 shows the walker can't saturate the NVMe while a maintained library can.

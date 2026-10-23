@@ -1,0 +1,12 @@
+# 006: Squarified treemap with cell-aspect correction, edge snapping, throttled relayout
+- Status: accepted (2026-10-23)
+- Context: M4 needs area proportional within cell rounding, labels that fit or truncate, and sync with the tree. Sizes change live during the scan.
+- Options:
+  - Slice-and-dice. Stable, but produces slivers in a small character grid.
+  - **Squarified** (Bruls et al. 2000; WinDirStat, SequoiaView). Near-square, readable tiles; unstable when the data changes.
+  - Ordered/strip treemaps (Bederson et al. 2002). More stable, worse aspect ratios.
+  - Nested multi-level with cushions. Not readable at cell resolution.
+- Decision: Squarified, one level. Per the UX map scope rule, the map shows the children of the selected item's parent, with the selected tile highlighted. A pure `neighbor()` function supports arrow navigation between tiles. Lay out in float with height scaled by the cell aspect (default 2.0). Snap edges, not sizes, to integer cells, so there are no gaps or overlaps. Merge sub-cell items into "… N smaller". Relayout at most every 500 ms while scanning. Selection is shown by border style, not color only.
+- Consequences: Tiles reorder when ranks change during the scan; throttling softens it (R5). Pure function, property-testable.
+- Blast radius / reversibility: layout + treemap widget only. Swapping the algorithm keeps the interface.
+- Revisit if: R5 finds the jitter distracting. Then switch to ordered treemap while scanning and squarified when done.

@@ -1,0 +1,16 @@
+# 010: ETA only from reliable sources; otherwise indeterminate progress
+- Status: accepted (2026-10-23; pending project-owner amendment of M2)
+- Context: Spike R3 (`spikes/r3-probe/REPORT.md`) measured the Knuth probe on 3 real roots with 100 seeds each. It is unbiased, but in most seeds it is 2-1000x low ($HOME: 96-98% of seeds <0.5x, median 0.001-0.005), with rare ~84x overshoots. ADR-005's revisit trigger fired. Brief M2 requires a labeled ETA that never shows a made-up number. The user's /home is btrfs (no inode counts), and history is off by default (user decision).
+- Options:
+  - Keep the probe, shown as a range or hidden until N%. Rejected: the range spans 2-3 orders of magnitude, and the estimate is usually below `seen` by 50%.
+  - A `seen/(seen+pending_dirs)` percentage. Rejected: it is an upper bound on true progress, so it would always look optimistic.
+  - A pending-dirs x mean-subtree estimator. Untested and likely low-biased under shallow-first. Optional spike R3b; not in v1.
+  - Turn history on by default. Rejected: it reverses a user decision.
+  - **Reliable sources only:** history (opt-in), an in-session previous scan (new, zero writes), the inode count (ext4/xfs mount roots). Otherwise an `Indeterminate` state showing only true quantities: elapsed, entries and bytes seen, rate, `≥ N folders queued` (an exact lower bound on remaining dirs), and `K of M top-level folders done`.
+- Decision: The last option. The probe module, thread and `ProbeMsg` are removed. `EtaSource = History | SessionPrevious | FsInodes`. `EtaView` gains `Indeterminate`. No bar or `%` is shown without a source.
+- Consequences:
+  - **First scan:** with history off on btrfs, a first scan has no ETA, which is honest. M2's "revised as the scan proceeds" then holds only once a source exists, so project-owner should amend M2.
+  - **Simpler build:** one less thread and module.
+  - **Path to a real ETA:** the user gets one from `--history`, or from `r` on the root within a session.
+- Blast radius / reversibility: eta (states), the status line (UX copy), T013/T019. Adding a future source is additive behind `EtaSource`.
+- Revisit if: R3b passes (within 0.5-2x from 25% on all three roots), or the user asks for an ETA on first scans enough to accept history on by default.

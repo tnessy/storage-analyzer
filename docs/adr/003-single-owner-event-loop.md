@@ -1,0 +1,11 @@
+# 003: Main thread owns the model; workers communicate only by bounded channels
+- Status: accepted (2026-10-23)
+- Context: M1 (interactive within 1 s, navigation never waits on the scan). Shared mutable trees with locks risk UI stalls and lock contention.
+- Options:
+  - Arc<RwLock<Tree>> written by workers. The UI read lock contends with writers, and the model is complex to keep consistent.
+  - A dedicated model thread that publishes snapshots. Snapshots cost a copy per frame or need persistent data structures.
+  - **Main thread owns the model, applies messages within a time budget, and handles input first.** This is how dua's interactive mode applies traversal results between frames (the dua docs describe it as parallel-traverse plus interactive; the loop detail is an assumption).
+- Decision: Single owner. Input is handled first each iteration. Apply runs with an 8 ms budget. The channel is bounded, so backpressure falls on the scan, never on the UI. Ordering contract: a dir's Listing is sent before its children are enqueued. Frame 0 is rendered before any worker starts (first paint < 1 s). Data-driven redraws are capped at 10 Hz; input-driven redraws are immediate and coalesced (UX motion rule).
+- Consequences: No locks, deterministic tests. Scan throughput is capped by the apply rate on one core (R2).
+- Blast radius / reversibility: app and model. Moving apply to a separate thread later is feasible behind the same messages.
+- Revisit if: R2 shows apply below about 70% of walker throughput on the user's data.

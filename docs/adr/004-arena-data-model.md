@@ -1,0 +1,11 @@
+# 004: Arena tree with NodeId, name-only storage, both size modes, hard-link table
+- Status: accepted (2026-10-23)
+- Context: M3-M8 need per-dir aggregates, live updates, both size modes (Should), whole-root ext and top-N indexes, hard links counted once, and identity for the delete safety check.
+- Options:
+  - Pointer tree with full paths per node. Simple, but memory-heavy.
+  - **Arena (Vec, u32 ids) + byte-arena names + per-dir child vecs.** ncdu 2 also uses compact per-kind nodes.
+  - An embedded DB (gdu can persist to SQLite/Badger). Unnecessary for an interactive single session.
+- Decision: Arena. Store disk and apparent size per node so the toggle is instant. Dir apparent = 0 to match du 9.12 (observed). A duplicate hard link carries 0 own size, is tracked in a (dev,ino) table, and is re-charged on delete. Store ino and dev_idx per node for the TOCTOU check. Rev 2 (UX needs): `pending_dirs` per dir gives the O(1) `is_complete` flag (maintained in the same O(depth) pass as sizes); `nlink` per file gives the delete-dialog hard-link note; an `issue` index per node gives skip reasons in the tree; NodeIds are stable so selection follows the item.
+- Consequences: Hard-link attribution across directories depends on traversal order. Totals match du, per-dir charging may differ (documented). Removing nodes leaves holes; compaction is not needed in v1.
+- Blast radius / reversibility: model, plus every view reading it. Medium.
+- Revisit if: R1 exceeds 120 B/entry, or a persisted scan or export is added.

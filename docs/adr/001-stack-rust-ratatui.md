@@ -1,0 +1,12 @@
+# 001: Rust + ratatui/crossterm + rustix, no async runtime
+- Status: accepted (2026-10-23)
+- Context: User has no language preference. Needs: M1 (live, non-blocking UI over millions of entries), M8 (exact du semantics: statx, no-follow), M7/M9 (safe fd-relative deletion), low memory per node. Rust 1.99 and Go 1.27 are installed (fact).
+- Options:
+  - **Rust + ratatui 0.30 + crossterm 0.29 + rustix 1.x.** Compact arena nodes, no GC. rustix exposes openat/openat2/statx/unlinkat (verified on docs.rs). ratatui has TestBackend. dua, dust and diskonaut are prior Rust tools in this space.
+  - **Go + tview/bubbletea** (gdu precedent). Fastest to write and goroutines are simple. Costs: GC scanning of a pointer-heavy tree with 10M nodes, and fewer controls over memory layout. A viable second choice.
+  - **Zig** (ncdu 2 precedent). Excellent memory control, but no mature TUI library and the language is pre-1.0.
+  - **Python + Textual.** Quick UI, but memory and CPU per entry are too high for the expected scale.
+- Decision: Rust. Its memory and syscall control match M8/M9/M7 directly. The single-owner model (ADR-003) avoids most borrow-checker friction. Plain std threads and channels; no tokio.
+- Consequences: Longer compile times and a steeper language curve than Go. In exchange, predictable memory and no GC pauses during rendering.
+- Blast radius / reversibility: The whole codebase. Irreversible in practice after step 1 of the build order.
+- Revisit if: The engineers' Rust velocity blocks v1, or spike R1 shows memory is a non-issue and Go would be materially faster to ship.
