@@ -71,17 +71,70 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 
 | Field | Rule |
 |---|---|
-| `sel` | `>` on the selected row, which is also drawn in reverse video |
+| `sel` | `>` on the selected row. The row's full style depends on focus (§3.2.1). |
 | SIZE | Size in the active mode, in the **compact** format from §7.1 (`64.2G`, `812.0K`, `0B`), right-aligned in 7 cells. Prefixed `≥` when the size is a lower bound (§5.1). |
 | % | Percent of parent, 1 decimal, right-aligned in 5 cells (`100.0`, `35.2`, `0.0`) |
 | BAR | 10 cells, eighth-cell steps (`█▉▊▋▌▍▎▏`); the ASCII fallback is `#` |
 | STATE | One glyph: `◌` scanning, `▲` prioritised, `⊘` skipped by you, `!` has an issue, or blank. The precedence (§5.1) applies when several are true. |
 | NAME | Directories end in `/`. Names are sanitized (design §4 Security) and truncated with `…` by display width. |
 | SUFFIX | `(scan skipped)`, `(permission denied)`, `(other filesystem)`, `(deleting…)` |
+| `..` row | Present only when zoomed (§3.2.2). |
 | Aggregate | `(N smaller, SIZE)`, which can't be deleted or zoomed. An expanded folder shows its 50 largest children, and the rest go into one aggregate row (plan D5; the threshold is a constant). `→` on the aggregate reveals the next 50, and that stays revealed for this folder until it is collapsed. **The selected item is never hidden in an aggregate:** if a live re-sort pushes it below the cut-off, it stays as its own row just above the aggregate until the selection moves away. |
 
+#### 3.2.1 Selected row (revised after build feedback, 2026-10-23)
+**Observed in the build** (tmux capture, 80×24, this session):
+- The selected row is drawn in reverse video, but its tree-guide characters are also **dimmed** (SGR 2 inside SGR 7), so part of the row loses contrast.
+- Selection is otherwise marked only by the `>` in column 1.
+- On the map, the selected tile differs from its neighbours only by double versus single border lines, drawn in the same black on the same fill.
+
+**Rule.** Reverse video means "this is where your keys go". It appears in exactly one pane at a time.
+
+| Tree has focus | Map has focus |
+|---|---|
+| The selected tree row is **reverse video and bold across the full pane width**, every cell from column 1 to the right edge. No cell in that row is dimmed: guides, bar and suffix all take the row style. `>` stays in column 1. | The selected tree row is **bold, with the name underlined**, plus `>`. It is not reversed. |
+
+- **NO_COLOR:** same rule, because reverse, bold and underline are attributes, not colors.
+- **Not color-only:** focus is still shown by `*` before the focused pane's title, and the selection by `>` and the attribute.
+
+#### 3.2.2 `..` row (parent shortcut; added after build feedback)
+- **When it shows:** only when the view root is not the scan root (after `⏎` zoom). It is **row 0**, above the view root's own row.
+- **Look:** the SIZE, %, BAR and STATE columns are blank. NAME is `..`, followed by two spaces and `(up to /home/nss)`, the parent path, truncated from the left with `…`. The `..` row has no guides.
+```
+ <cmd>  /home/nss › .cache                     Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped
+*   SIZE      %  OF PARENT      NAME
+                                ..  (up to /home/nss)
+>  64.2G  100.0  ██████████  ◌  .cache/
+   31.0G   48.3  ████▊          ├── yay/
+```
+- **Sorting and grouping:** the row is pinned. It is never sorted, never counted in "50 largest", never put in an aggregate, and never shown in Types, Largest or the map. It scrolls with the list as row 0, and `g` goes to it.
+- **Selection:**
+  - After a zoom, the selection lands on the **view root row**, not on `..`, so `..` is one `↑` away.
+  - `↑` on `..` does nothing.
+  - It is selected like any row (§3.2.1).
+- **Keys on `..`:**
+  - `⏎`, `⌫`, `-`, `←` and `h` go up one level, the same as `⌫` anywhere. After going up, the selection is the folder you came from (this applies to `⌫` everywhere).
+  - `→` and `l` do nothing.
+  - `d`, `p`, `x` and `r` show `".." is the parent folder. Press ⏎ to go up.` and change nothing.
+  - `Tab` moves focus to the map and selects the largest tile.
+  - Going up to the scan root clears the zoom priority (F2), as before.
+- **Map while `..` is selected:**
+  - The map keeps showing the **view root's children**, the same as when the view root row is selected, so it doesn't jump when you move between `..` and the root row.
+  - No tile is highlighted.
+  - The map title appends ` · ⏎ goes up to /home/nss`, truncated first, before the hidden-items notice.
+  - The `selected hidden` notice never fires for `..`.
+  - *Alternative considered and rejected:* previewing the parent level with the current folder highlighted. The map would redraw at a different level on every `↑`/`↓` between `..` and the root row, and the highlighted tile would not be the selected item.
+
 ### 3.3 Treemap tile anatomy
-- **Border:** the selected tile gets a double border (`╔═╗`); others get a single border.
+- **Frame ("grout"):** the border lines and the title row of every tile are drawn on the **terminal's default background and foreground**, not on the tile's fill. Only the interior is filled. Every tile then reads as a separate coloured block with a neutral gap around it, so same-coloured neighbours no longer merge. This works the same with NO_COLOR, where there are borders but no fill.
+- **Selected tile (revised):**
+  - Double border (`╔═╗`).
+  - Its **whole frame** (border cells and title row) is drawn in **reverse video and bold**, so it reads as a solid bright outline.
+  - The title starts with `>`.
+  - The interior keeps its category fill, so the category stays visible.
+  - This applies whether the tree or the map has focus, because the map tile is the main "where am I" cue. The map pane's `*` shows which pane has keyboard focus.
+  - NO_COLOR: the same, using attributes only.
+- **Other tiles:** single border in the default foreground.
 - **Label:** first line is `name size pct% [T]`, and the second line holds whatever didn't fit. Labels truncate with `…`. Tiles narrower than 6 cells get no label, but a `!` or `⊘` marker still shows if one applies.
 - **Category tag and fill:** `[V]` video, `[I]` image, `[A]` archive, `[C]` code/text, `[B]` binary, `[D]` documents, `[O]` other/audio. Fill colors are listed in §7.
 - **Aggregate tile:** `(+N smaller)`, grey.
@@ -364,6 +417,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | `r` on a folder still being scanned (plan O7) | `Still scanning .cache/: moved it to the front instead of restarting.` / `… moved it to the front and resumed N skipped folders inside.` |
 | `r`, `p` or `x` while stopping | `Still stopping the scan. Try again when it says Stopped.` |
 | `r` on the current priority folder, still scanning | `Already scanning .cache/ first.` |
+| `d`, `p`, `x` or `r` on `..` | `".." is the parent folder. Press ⏎ to go up.` |
 | `r` on the root while scanning | `Scan in progress. Press s to stop, then r to rescan.` |
 
 ### 5.5 View states
@@ -394,7 +448,8 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | `← h` | Collapse, or move to the parent | Tree, Types |
 | arrows `hjkl` | Move to the adjacent tile (`layout::neighbor`) | Map focus |
 | `⏎` | Zoom into the folder **and prioritise it** / Largest: show in tree | Tree, map, Largest |
-| `⌫` `-` | Up one level (zoom out); clears priority when back at the root | Tree, map |
+| `⌫` `-` | Up one level (zoom out); the selection becomes the folder you left. Clears priority when back at the root. | Tree, map |
+| `⏎` `←` `h` on `..` | Up one level (same as `⌫`) | Tree `..` row |
 | `Tab` / `Shift-Tab` | Focus tree ↔ map | Main |
 | `1` `2` `3` `4` | Tree, Types, Largest, Skipped | Global |
 | `d` `Delete` | Delete the selected item (dialog) | Tree, map, Largest |
@@ -418,7 +473,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 
 ## 7. Visual system
 - **Text and chrome:** the terminal's default foreground and background. Dim text is used only for decoration such as tree guides, never for information.
-- **Selection and focus:** reverse video plus `>` marks selection. The focused pane's title is bold with `*`.
+- **Selection and focus:** see §3.2.1 (tree row) and §3.3 (map tile). The focused pane's title is bold with `*`. **Rows in reverse video never use DIM.**
 - **Category fills** (Okabe-Ito; black label text unless noted; WCAG contrast computed 2026-10-23 with the relative-luminance formula):
 
 | Category | Hex | Label text | Contrast |
@@ -431,6 +486,24 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | `[D]` documents | #D55E00 | black | 5.43:1 |
 | `[O]` other/audio | #CC79A7 | black | 6.86:1 |
 | aggregate or mixed | #BBBBBB | black | 10.94:1 |
+
+**Alternate shades (telling neighbours apart).** Tiles are coloured by the dominant category of their content, so many neighbours share a colour. Each category therefore has a **base** and an **alternate** shade. The shades differ in lightness, which colour-vision deficiency doesn't remove, and keep the same hue family. The category is always carried by the `[T]` tag, never by shade.
+
+| Category | Base | Alternate | Alt label | Alt contrast | Base:alt luminance ratio |
+|---|---|---|---|---|---|
+| `[V]` | #E69F00 | #F0C566 | black | 12.88:1 | 1.38 |
+| `[I]` | #56B4E9 | #9AD2F2 | black | 12.87:1 | 1.41 |
+| `[A]` | #009E73 | #66C5AB | black | 10.14:1 | 1.65 |
+| `[C]` | #F0E442 | #BBB233 | black | 9.53:1 | 1.67 |
+| `[B]` | #0072B2 | #004A74 | white | 9.41:1 | 1.81 |
+| `[D]` | #D55E00 | #8A3D00 | **white** | 7.64:1 | 1.98 |
+| `[O]` | #CC79A7 | #E0AFCA | black | 11.15:1 | 1.63 |
+| aggregate | #BBBBBB | #969696 | black | 7.10:1 | 1.54 |
+
+- Alternate shades are base mixed 40% toward white, except `[C]` (22% toward black), `[B]` (35% toward black), `[D]` (35% toward black, so it isn't confused with light orange) and aggregate (20% toward black). Contrast was computed this session with the WCAG formula. Every label pair is ≥ 7:1.
+- **Assignment (deterministic):** walk the tiles in layout order (size descending, ties by NodeId). A tile takes the **alternate** shade if a tile already coloured shares a border segment with it, has the same category, and uses the base shade. Otherwise it takes the base. With 3 or more mutually adjacent same-category tiles, two may still share a shade; the grout frame still separates them.
+- **Not used:** hatching or pattern fills, which make labels harder to read; and per-tile random hues, which would break the category meaning and the colour-blind-safe palette.
+- **NO_COLOR:** no fills, so shades don't apply. The grout borders separate tiles.
 
 - **Color depth:** truecolor if `COLORTERM` is `truecolor` or `24bit`; otherwise the nearest xterm-256 color with black or white label text chosen per the contrast table (**Open question:** recheck the 256-color contrast in build review); otherwise monochrome.
 - **ASCII fallback** (no Unicode or `LANG=C`): `◌`→`~`, `▲`→`^`, `⊘`→`-`, `≥`→`>=`, `▾▸`→`-+`, `█…`→`#`, double border→`#`, single border→`+-|`.
@@ -568,3 +641,18 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
     - **Long size:** `33285996544` → `31.0 GiB`, and `0` → `0 B`.
     - **Compact count:** `812` → `812`, `12400` → `12.4k`, `999960` → `1.00M`, `1240000` → `1.24M`.
     - **Exact count:** `1204331` → `1,204,331`.
+16. **Selected state (§3.2.1, §3.3):**
+    - Tree focused: every cell of the selected row (column 0 to the pane edge) has REVERSED and BOLD, and none has DIM.
+    - Map focused: the selected row has BOLD, has UNDERLINED on the name cells, and has no REVERSED.
+    - In both cases, every frame cell of the selected tile has REVERSED.
+    - All of this holds identically with `NO_COLOR=1`.
+17. **Neighbour shading:**
+    - In a fixture with 6 sibling folders of the same category laid out in one row, no two tiles that share a border segment have the same fill (truecolor).
+    - Every frame cell (border and title) has the default bg.
+    - Every fill/label pair in the §7 tables has contrast ≥ 4.5.
+18. **`..` row:**
+    - It is absent at the scan root. After `⏎` on a folder, row 0 is `..`, and the selection is on row 1 (the view root).
+    - `⏎` on `..` gives the same state as `⌫`, and the selection becomes the folder you left.
+    - `d`, `p`, `x` and `r` on `..` produce the §3.2.2 message, no `DeleteRequest`, and no `ScanControl` change.
+    - With 60 children, `..` is not inside the aggregate.
+    - With `..` selected, the map shows the same tiles as with the view root row selected, and no tile is highlighted.

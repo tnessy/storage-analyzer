@@ -41,3 +41,6 @@ Commands: `cargo test --test ui_accessibility --test ui_snapshots`, and `NO_COLO
 
 ## Out of scope
 The Types side panel. Dialog snapshots (T021).
+
+## Note from T025
+Include the 8 **alternate** tile shades (`ux/spec.md` §7) in the 256-colour mapping and in the contrast check. The ASCII fallback must cover the tree guide glyphs and the selected-tile `>` marker. Also confirm with UX the STATE-to-guide spacing nit from the T016 review.

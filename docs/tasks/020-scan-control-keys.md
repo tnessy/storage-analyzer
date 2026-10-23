@@ -109,3 +109,6 @@ Replaces the earlier copy for `PrioritiseAndResume`:
 - `Already scanning .cache/ first.` still applies when the folder is already the priority and nothing was resumed.
 
 **Tests:** the three message forms (0, 1, 2 resumed); N ignores a skip nested inside another skip.
+
+## Note from T025
+T025 intercepts `d`/`p`/`x`/`r` on the `..` row in `keymap.rs` (message `"." is the parent folder. Press ⏎ to go up.`, no effect). Keep that interception **ahead** of the handlers you add, and keep T025's tests green.
