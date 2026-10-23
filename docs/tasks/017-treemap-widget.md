@@ -51,3 +51,6 @@ Command: `cargo test --test ui_treemap`.
 
 ## Out of scope
 Delete from the map (T021). 256-color mapping and NO_COLOR (T023).
+
+## Note from the T016 review
+The tree's aggregate row is a cursor stop. When `tree.aggregate == Some(dir)`, `selection == dir`. The map must treat that as **the `(+N smaller)` tile of `dir`'s children being selected**: it shows `dir`'s children and double-borders the aggregate tile. It must **not** treat it as `dir` itself being selected. Add a test.
