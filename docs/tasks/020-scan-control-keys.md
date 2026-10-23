@@ -82,3 +82,12 @@ The delete dialog's `p` (T021). Model internals (T012).
   - `r` on the root while scanning changes nothing;
   - `r` after Done or Stopped starts a subtree rescan.
 - **Resuming skipped folders inside** (architect rule): UX's text doesn't mention it, and it is invisible apart from the `⊘` rows turning `◌`. Keep it, and use the same message.
+
+## Amendment (2026-10-23, architect, design §3.11): no rescan while a stop is draining
+After `s`, the workers are still draining, and stale jobs may still be in flight until `ScanMsg::Done { cancelled: true }` arrives. **No `ScanHandle::rescan` may start in that window.**
+- **Gate on scan state, not on whether `s` was pressed.** The app is *stopping* when `ScanControl::is_cancel_all()` is set and the model's `state()` is still `Scanning`, that is, before `Done` is applied.
+- **`r` pressed while stopping** (on any folder, or on a Skipped row): **remember it**, keeping the last one only, and execute it right after `Done { cancelled: true }` is applied. By then `rescan_plan` returns `Full` (Stopped). No new copy is needed: the status already shows the stop in progress, and the normal rescan message appears when the deferred `r` runs.
+- The same gate applies to every internal caller of `app::rescan`. Once T021 lands, that includes the D1 delete reconciliation after `Partial` or `Aborted`: it waits for `Done` too.
+- **Tests (red first):**
+  - press `s` then `r` before `Done` is applied → no `ScanHandle::rescan` call until `Done { cancelled: true }`, then exactly one. Use a recording handle, or a starter whose workers are held on a latch so `Done` is delayed.
+  - `r` after `Done { cancelled: true }` → immediate.

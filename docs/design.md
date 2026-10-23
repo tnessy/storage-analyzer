@@ -399,7 +399,13 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
     1. Remove the prefix from `cancelled_prefixes` (bumping `generation`).
     2. Clear the `SkippedByUser` issue and the `inexact_dirs` contribution up the chain.
     3. Run a subtree rescan (§3.5). The folder shows `◌` until complete, then `≥` clears.
-  - **`r` on a folder that is still scanning (`!is_complete`, not itself skipped) (plan O7):** it acts as **`p` plus resume**, not as a rescan.
+  - **`r` dispatch (plan O7, implemented as T012 `Model::rescan_plan(id) -> Full | PrioritiseAndResume { resume } | NoneWhileScanning`, carried out by T020):**
+    - **"Still being scanned"** means `ScanState::Scanning` (no `Done` received yet) **and** the folder is `!is_complete`.
+    - **After a stop:** once `Done { cancelled: true }` has arrived, unread folders look unfinished but nothing is scanning them. So `r` does a **real rescan** (`Full`).
+    - **On the scan root while scanning:** `NoneWhileScanning`. Nothing happens, and the status line shows `Scan in progress. Press s to stop, then r to rescan.` Skipped folders can still be resumed one at a time with `r` on each.
+    - **On a skipped folder:** `Full` (resume, steps 1–3 above).
+    - **On any other folder that is still being scanned:** `PrioritiseAndResume`, below. `resume` = the *outermost* `SkippedByUser` folders under it, taken from the issue list. Skips nested inside them are cleared by their own rescan (plan D2).
+  - **`PrioritiseAndResume`:** it acts as **`p` plus resume**, not as a rescan.
     1. Set focus to the folder (`▲`), exactly like `p`.
     2. For every `SkippedByUser` node under it, do steps 1–3 above on that node only. Rescanning those is safe because their jobs were already dropped.
     3. No rescan of the folder itself, so no duplicate jobs, no double reads, and `Done` is not delayed.
