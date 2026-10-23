@@ -53,6 +53,11 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T001 | e1 | Crate skeleton, shared contracts, write guard, APP_ID | — |
 | T002 | e2 | Spike R3: Knuth probe ETA accuracy (standalone) | — |
 
+### Follow-ups
+| Task | Engineer | Title | Depends on |
+|---|---|---|---|
+| T024 | e1 | Harden the write guard and the APP_ID check (from the T001 review) | T001 |
+
 ### Wave 1: foundations (parallel across engineers)
 | Task | Engineer | Title | Depends on |
 |---|---|---|---|
@@ -83,13 +88,15 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T023 | e2 | Size toggle, help, too-small, NO_COLOR/ASCII/contrast, snapshot set | T017, T018 |
 
 ### Suggested order per engineer
-- **engineer-1:** T001 → T003 → T008 → T004 → T006 → T007 → T005 → T009 → T010 → T012 → T011
+- **engineer-1:** T001 → T003 → T024 → T008 → T004 → T006 → T007 → T005 → T009 → T010 → T012 → T011
 - **engineer-2:** T002 → T013 → T014 → T015 → T016 → T022 → T017 → T018 → T019 → T020 → T023 → T021
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.
 
 ### Critical path
 T001 → T003 → T004 → T006 → T005 → T010 → T012 → T011 → T021. The delete executor (T010) has only T001 as a dependency. If engineer-1 is ahead, they may pull it earlier, to leave time for the second review.
+
+**Hold (2026-10-23):** T013 and T019 acceptance criteria are on hold until the architect's ADR-005 revision lands, which follows R3 (T002). T013 must not start until then. T002 is in rework: the second estimator variant must be measured before the probe verdict is final.
 
 ## 4. Integration checkpoints
 1. **After T001:** `cargo build`, and the write-guard test passes. Contracts are frozen.

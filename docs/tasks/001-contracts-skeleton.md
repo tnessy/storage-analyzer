@@ -46,6 +46,7 @@ In `src/scan/control.rs`: `ScanControl` from design §3.11, with methods (implem
 - `cancel_prefix(&self, p: PathBuf)`, `remove_prefixes_under(&self, p: &Path)` (D2), `is_cancelled(&self, p: &Path) -> bool`
 - `set_focus(&self, Option<PathBuf>)`, `focus(&self) -> Option<PathBuf>`
 - `cancel_all(&self)`, `reset_cancel_all(&self)`, `generation(&self) -> u64`. Every mutation bumps `generation`.
+- Accepted in review: `new()` and `is_cancel_all(&self) -> bool`. `is_cancelled` checks prefixes only; `cancel_all` is checked separately.
 - Unit tests: prefix matching works on whole path components (`/a/b` does not cancel `/a/bc`), and every mutation bumps the generation.
 
 In `src/scan/fs.rs`, the fault-injection seam (design §3.5):
