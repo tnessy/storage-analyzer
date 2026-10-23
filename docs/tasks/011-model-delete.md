@@ -56,6 +56,7 @@ Acceptance criteria:
 - **Decline:** opening `delete_check` without `begin_delete` changes nothing (model hash before == after), and the fixture tree hash is unchanged.
 - **Early delete (design §4):** start a scan on a 20 k fixture with `threads = 1`, `begin_delete` an unfinished subdir, cancel its prefix, run the executor → the subtree is gone. After the scan completes, the totals equal du on the remaining tree.
 - **Odin gap 1, aborted unfinished delete:** same setup, but swap the target for another dir before submitting (so the identity check fails) → `Aborted(ChangedSinceScan)`. Then `apply_delete` returns `Rescan(id)`. After the app-side sequence (`remove_prefixes_under`, `begin_rescan`, `rescan`), no node is `DELETING`/`TOMBSTONE`, the subtree reaches `is_complete && is_exact`, and the totals equal du on the (unchanged) tree.
+- **Aborted(MountPoint):** `apply_delete` treats it like any `Aborted`: it clears the tombstones and returns `Rescan(id)`. The totals after the rescan equal those before the delete (unit test with a synthetic event; no mount needed).
 - **Partial:** a `chmod 555` subdir → `Rescan(id)`, the failures are in `issues()`, and after the rescan the totals equal du.
 - **Late messages:** a `Listing` that arrives after `Removed` for a dir inside the removed subtree is ignored.
 

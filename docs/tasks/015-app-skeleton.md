@@ -15,7 +15,7 @@ Acceptance criteria:
 2. **Pre-TUI** (UX §5.5 "Pre-TUI errors"): `statx` and open the root dir fd before the terminal is touched. Errors print `<bin>: <path>: no such file or directory | not a directory | permission denied` to stderr and exit with code 2. No TUI is drawn.
 3. **Terminal:** raw mode + alternate screen, with a guard that restores the terminal on drop. A **panic hook restores the terminal before printing** (design §4). SIGTERM/SIGHUP (signal-hook flag) restore the terminal and exit; T021 adds the delete-interrupt message.
 4. **Frame 0 before anything else** (design §3.3):
-   - Render the header, tabs, the root row with `◌`, the map area `Waiting for first results…`, and the status line `◌ Starting…  00:00 elapsed`. T019 decides whether `ETA estimating…` is appended (only when a source exists; see the T019 provisional rule).
+   - Render the header, tabs, the root row with `◌`, the map area `Waiting for first results…`, and the status line `◌ Starting…  00:00 elapsed`, per `ux/spec.md` §5.2 (resolved 2026-10-23): with no ETA source there is **no ETA text at all**. `ETA estimating…` is appended only when a source exists, which T019 wires. Test: frame 0 with no source contains no `ETA`.
    - Only **then** spawn the scanner (and, later, the opt-in history read in T019).
 5. **Event loop** (ADR-003):
    1. Poll input with a timeout until the next tick.

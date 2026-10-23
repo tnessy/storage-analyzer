@@ -3,7 +3,7 @@
 - **Engineer:** engineer-2. **Wave:** 2. **Depends on:** T013, T015, T003 (`top_level_progress`).
 - **Rev 2 (2026-10-23):** rewritten for ADR-010 / design rev 7 §3.6. The probe is removed. Renamed from `019-probe-history-eta-status.md`.
 - **Copy: unblocked (2026-10-23).** UX updated `ux/spec.md` §5.2. **The spec is the source of truth for all status text, including the Indeterminate fields, their formats and the 80-column drop order.** The design's examples in criterion 3 are superseded wherever they differ. Known differences: `K of M top-level done` (shortens to `K/M`), a bytes-seen field, and `ETA unknown (no previous scan)`.
-- **One open conflict, with a provisional rule:** §5.2's Starting row (`ETA estimating…` for the first 2 s) contradicts the accepted rule that `Estimating` needs a source (design §3.6 rev 8, T013). Until UX answers (Heimdall has flagged it):
+- **Resolved by UX (2026-10-23), same as the former provisional rule:** §5.2's Starting row (`ETA estimating…` for the first 2 s) contradicts the accepted rule that `Estimating` needs a source (design §3.6 rev 8, T013). Until UX answers (Heimdall has flagged it):
   - while `ScanState::Starting`, or for elapsed < 2 s, render `◌ Starting…  00:00 elapsed`;
   - append `  ETA estimating…` **only** if `eta::view` returns `Estimating`;
   - with no source, append nothing.

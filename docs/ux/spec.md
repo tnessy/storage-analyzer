@@ -179,7 +179,8 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 ### 5.2 Status line
 | State | Text |
 |---|---|
-| Starting (first 2 s, `Estimating`) | `◌ Starting…  00:00 elapsed  ETA estimating…` |
+| Starting, no ETA source (first 2 s) | `◌ Starting…  00:00 elapsed`, with no ETA field. After 2 s it becomes the `Indeterminate` line, which says `ETA unknown`. |
+| Starting, ETA source exists (`Estimating`) | `◌ Starting…  00:00 elapsed  ETA estimating…`. `estimating…` appears **only** when a source exists (design rev 8, T013/T019), so it never promises an estimate that won't come. |
 | Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41k/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
 | Scanning, ETA source exists (`Eta`) | `◌ Scanning [bar] ~41%  01:12 elapsed  ETA ~01:44 (estimate, last scan)`. The source label is **only** `last scan` (history file or an earlier scan this session) or `filesystem` (inode count), per design §3.6 / ADR-010. |
 | Past estimate (`OverEstimate`) | `◌ Scanning [bar] ~99%  04:02 elapsed  ETA unknown (past estimate)` |
@@ -308,6 +309,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
   - `ChangedSinceScan` → `It changed since it was scanned (it may have been replaced or moved). Rescan with r, then try again.`
   - `NotFound` → `It no longer exists.`
   - `OpenFailed` → `It couldn't be opened (errno N: <strerror>).`
+  - `MountPoint` → `It's a mount point (another filesystem or subvolume is mounted here), so it can't be deleted from here. Unmount it first if you want to remove it.`
 
 **Quit: no delete running**
 ```
@@ -462,6 +464,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 3. **Contrast:** for each fill in §7 (and each 256-color mapping), `contrast(label, fill) ≥ 4.5`.
 4. **ETA:**
    - It never shows a number while `Estimating`.
+   - `estimating` never appears when there is no ETA source. In that case the Starting line has no `ETA` text at all.
    - **In `Indeterminate`, the status line contains no `%`, no bar glyphs (`█▉▊▋▌▍▎▏░`), and no ETA digits.** The text after `ETA` must match `^ETA unknown` at 80, 120 and 200 columns.
    - When it is a number, it always contains `~` and `estimate`.
    - The source label is only `last scan` or `filesystem`, and never `rough`.
@@ -476,7 +479,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
    - When the target is `!is_exact`, the title contains `scan of this folder not finished`, every count has `≥`, and up to 3 known children are listed.
    - `p` sets the focus and the dialog stays open.
    - When the target completes, the title loses `not finished` and the `≥` prefixes disappear.
-7. **Refusals:** the scan root, an aggregate, `OTHER_FS`, and a second delete each produce the §5.3 text and no request.
+7. **Refusals:** the scan root, an aggregate, `OTHER_FS`, and a second delete each produce the §5.3 text and no request. An `Aborted { MountPoint }` outcome opens the "Not deleted" dialog with the `MountPoint` text and `Nothing was deleted.`, and the model is unchanged.
 8. **Quit:**
    - The first `q` or `Ctrl-C` never exits. With no delete running, `q q` exits.
    - With a delete running, `q q` and `Ctrl-C Ctrl-C` do not exit, the delete continues, and `y` exits with the stderr line.

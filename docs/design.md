@@ -297,14 +297,24 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
 - **Executor (own thread)** receives `DeleteRequest { node, rel_path (from scan root), expect: (dev, ino), kind, total_entries }`:
   1. Resolve the parent with `openat2(root_fd, parent_rel, O_DIRECTORY|O_NOFOLLOW, RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)`. `root_fd` is opened at scan start. This guarantees the target is inside the scanned root and that no symlink was swapped into the path.
   2. `statx(parent_fd, name, AT_SYMLINK_NOFOLLOW)`. If the result does not equal `expect` → **abort** "changed since scan", and nothing is deleted.
+  2b. **The target must not be a mount point:** if its (dev, mnt_id) differs from `parent_fd`'s → abort `MountPoint`, and nothing is deleted. This can happen with `--cross-filesystems` or a same-device bind mount (T010 review).
+  - **Residual race (accepted):** Linux has no unlink-by-fd, so between `statx` and `unlinkat(name)` an object with the same name could be swapped in. The damage is limited to that one name inside an already-verified directory, and an attacker would need write access to it anyway.
   3. File, symlink, or other → `unlinkat(parent_fd, name, 0)`.
   4. Directory:
      - `openat(parent_fd, name, O_DIRECTORY|O_NOFOLLOW)` and re-verify (dev, ino) with `fstat`.
      - Do an iterative post-order removal using dirfds only.
-     - Never descend into an entry whose `st_dev` ≠ the target's `st_dev` (mount point / nested subvolume). Leave it, record a failure `OtherFilesystem`, and keep going.
+     - Never descend into an entry whose `st_dev` ≠ the target's `st_dev`, **or whose `stx_mnt_id` differs** when the kernel reports it, so same-device bind mounts are caught (T010, accepted). Leave it, record a failure `OtherFilesystem`, and keep going.
      - Finish with `unlinkat(.., AT_REMOVEDIR)`.
      - Keep at most 64 open dirfds. Deeper levels are handled by closing and reopening via `openat` from the nearest held ancestor with the same no-follow and identity checks.
   5. Emit progress and the outcome (§3.10 delete progress contract).
+- **Handle lifecycle (exit must never block):** the main thread is the only receiver of `DeleteEvent`, so it must never block waiting on the executor while it is not draining that channel. Exit order:
+  1. set stop;
+  2. wait at most 2 s for the executor to go idle, **draining `DeleteEvent` while waiting**;
+  3. drop the request sender;
+  4. restore the terminal and exit.
+  - `Drop` must not join without a bound. If the thread hasn't finished, detach it: process exit ends it, and it has already stopped after the current entry.
+  - The executor sends `Finished` with a bounded wait (`send_timeout`, or a `try_send` loop that checks stop). On exit it may drop `Finished`, because the stderr "interrupted: N of M" line comes from the last `Progress` or the shared counters, not from `Finished`.
+  - The same rule applies to the scan workers on the bounded `ScanMsg` channel (plan T006 drain on `cancel_all`).
 - **Cancellation:** the executor checks a stop flag between entries. It is set only on quit (see below), never by a dialog.
 - **Quit (user decision, rev 3; supersedes UX F5 "no prompt"):** `q` (and `Ctrl-C`, which arrives as a key event in raw mode) **always** opens a quit confirmation. Nothing quits on the first press.
   - **Idle or scanning:** `Quit <cmd>? Scan results will be lost.` A second `q`, or `y`, quits. `n`, `Esc` and `Enter` cancel.
@@ -335,7 +345,7 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
 | **Redraw cap** | Data redraws ≤ 10 Hz, input redraws immediate and coalesced, relayout ≤ 2 Hz, `--no-animation` (§3.3) | none |
 | **Hard-link count for the delete note** | Computed when the dialog opens, over the (complete) target subtree: `outside_links` = number of files with `nlink > 1` whose occurrences inside the subtree (from the hard-link table) are fewer than `nlink`. Deleting these files won't free their space. The same pass gives `freed_bytes_upper` (disk size minus those files). Budget: ≤ 50 ms per 1 M subtree nodes on the main thread; R2 measures it. Answer to UX's question: **yes, cheap**. `nlink` is already in `statx` | O(subtree) once per dialog |
 | **Delete progress** | `DeleteEvent::Progress { removed_files, removed_dirs, removed_bytes }` at most every 100 ms. The total (`total_files`) comes from the request when the target `is_exact`. This gives `Deleting … 12,400 / 48,212 files`. Otherwise it is `None` and the UI shows `12,400 files removed` | none |
-| **Delete result** | `Finished(Outcome)`. `Outcome = Removed { files, dirs, bytes } \| Partial { removed: Counts, failures: Vec<DeleteFailure { rel_path, kind: DeleteFailKind }> } \| Aborted { reason: ChangedSinceScan \| NotFound \| OpenFailed(errno) }`. `DeleteFailKind = PermissionDenied (EACCES/EPERM) \| Busy (EBUSY/ETXTBSY) \| ReadOnlyFs (EROFS) \| OtherFilesystem \| Other(errno)`. ENOENT is not a failure: it counts as removed (§4 is the contract, plan D8). UX groups failures by kind and `v` lists their paths | none |
+| **Delete result** | `Finished(Outcome)`. `Outcome = Removed { files, dirs, bytes } \| Partial { removed: Counts, failures: Vec<DeleteFailure { rel_path, kind: DeleteFailKind }> } \| Aborted { reason: ChangedSinceScan \| NotFound \| OpenFailed(errno) }`. `DeleteFailKind = PermissionDenied (EACCES/EPERM) \| Busy (EBUSY/ETXTBSY) \| ReadOnlyFs (EROFS) \| OtherFilesystem \| Other(errno)`. ENOENT is not a failure; it is also not counted in `removed` (T010) (§4 is the contract, plan D8). UX groups failures by kind and `v` lists their paths | none |
 | **Skip reasons** | `IssueKind = PermissionDenied \| Vanished \| OtherFilesystem \| Other(errno)`, with `op` and `node` (§3.4). Live list, plus node `issue` for `! name (reason)` rows | none |
 | **Progress `~%`** | `EtaView::Eta.fraction` (§3.6) | none |
 | **Selection follows item** | Stable `NodeId` (§3.4) | none |
@@ -446,7 +456,7 @@ enum Outcome { Removed(Counts), Partial { removed: Counts, failures: Vec<DeleteF
                Aborted { reason: AbortReason } }
 struct DeleteFailure { rel_path: PathBuf, kind: DeleteFailKind }
 enum DeleteFailKind { PermissionDenied, Busy, ReadOnlyFs, OtherFilesystem, Other(i32) }  // ENOENT = success
-enum AbortReason { ChangedSinceScan, NotFound, OpenFailed(i32) }
+enum AbortReason { ChangedSinceScan, NotFound, MountPoint, OpenFailed(i32) }
 struct DeleteCheck { exact: bool, largest_known: [Option<NodeId>; 3], files: u64, dirs: u64, size_bytes: u64,
                      outside_links: u64, freed_bytes_upper: u64 }   // Model::delete_check(id)
 struct EtaInput { elapsed: Duration, seen: u64, pending_dirs: u64, rate_eps: f64,

@@ -54,3 +54,16 @@ Acceptance criteria:
 
 ## Out of scope
 Model reconciliation and `delete_check` (T011). Dialog and UI (T021). Trash and multi-select (not in v1).
+
+## Review round 2 (2026-10-23): required before commit
+These come from Heimdall's review (`010-review.md`) and the architect's second review. **The commit is held until all of them land.**
+1. **F1, the target is a mount point (design §3.8 step 2b):** after the identity check, if the target's (dev, `mnt_id`) differs from `parent_fd`'s, return `Aborted { reason: AbortReason::MountPoint }`. Nothing is removed.
+   - **Contract change, authorized:** add `MountPoint` to `AbortReason` in `src/delete/msg.rs`. That is the only `msg.rs` edit.
+   - **Tests:** (a) under `unshare -rm` (same pattern as the mount test), the target itself is a tmpfs mount point → `Aborted(MountPoint)` and its contents survive; (b) a same-device bind mount as the target → `MountPoint`. Both must be shown failing first.
+2. **F2, panic safety:** run each request inside `catch_unwind`. A panic yields `Finished(Aborted { OpenFailed(EIO) })` and clears `busy`, so later submits work. Test: inject a panic through a test-only hook (for example a `cfg(test)` closure in `run_with_limit`) → `Finished(Aborted)`, then a second submit succeeds.
+3. **`Drop` must not hang** (`010-review.md` item 1): with a full, undrained event channel and a live receiver, `drop(handle)` returns within 2 s. Red-first test.
+4. **Pin `NOFOLLOW`** (`010-review.md` item 2): a `sys` test that `open_dir_at` on a symlink to a dir fails with the specific errno, and that fails when `NOFOLLOW` is removed.
+5. **Bytes-freed test (architect):** for a tree with known single-link files, `Removed.bytes` equals the sum of their `blocks*512` plus the dirs' own blocks. A file with an outside hard link adds 0.
+6. The architect's F3/F5 notes, as relayed by the team lead: address them, or answer them in your report.
+
+The second review is done (architect, approved with F1/F2). After the fixes, Heimdall re-verifies, and also re-runs the mutation checks.

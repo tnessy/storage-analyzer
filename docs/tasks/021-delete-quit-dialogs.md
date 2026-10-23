@@ -41,7 +41,7 @@ Acceptance criteria:
      - the `Delete finished with errors` dialog, with failures grouped by kind using the UX labels;
      - `v` opens a scrollable list of the failed paths, and `Esc` goes back;
      - it must be dismissed with `Enter`.
-   - **Aborted:** the `Not deleted` dialog with the reason text (UX §5.3), dismissed with `Enter`.
+   - **Aborted:** the `Not deleted` dialog with the reason text (UX §5.3), dismissed with `Enter`. This includes the new `AbortReason::MountPoint` and its UX text: `It's a mount point (another filesystem or subvolume is mounted here), so it can't be deleted from here. Unmount it first if you want to remove it.`
    - **`Reconcile::Rescan(id)` → call `app::rescan(id)` (T020).** This is the D1 path for Aborted and Partial.
 7. **Quit while deleting** (M12, design §3.8):
    - `q`/`Ctrl-C` open `Quit while deleting?` with live counts (`N of M files removed.` or `N files removed so far.`);
@@ -66,6 +66,8 @@ In `tests/app_delete.rs`, headless, with a real `DeleteHandle` in a temp fixture
 - **M7 confirm:** removed from disk, the model totals equal `du -s -B1` of the remaining fixture, and the success message is shown.
 - **M7 error visible:** a `chmod 555` subdir → the `Delete finished with errors` dialog with `permission denied N`. `v` lists the paths. After dismissal, the rescan completes and the totals equal du.
 - **Odin gap 1:** delete an unfinished folder whose identity changed (swap it before `y`) → the `Not deleted` dialog with the `ChangedSinceScan` text. After dismissal, no row shows `(deleting…)`, the folder's scan resumes, and it ends `is_complete && is_exact` with the totals equal to du.
+
+- **MountPoint (UX §11 check 7):** a target that is a mount point. Use `unshare -rm` with the T010 helper pattern, `#[ignore]`d and run with `-- --ignored`. Result: the `Not deleted` dialog with the MountPoint text and `Nothing was deleted.`, nothing on disk changes, and after the D1 rescan the model totals are unchanged.
 
 In `tests/app_quit.rs`, **UX §11 check 8 / M12:**
 - with a delete running (a large fixture, or a test executor that blocks on a latch), `q q` and `Ctrl-C Ctrl-C` do not exit, and the delete continues (more files get removed afterwards);

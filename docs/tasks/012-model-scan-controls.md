@@ -11,7 +11,7 @@ Acceptance criteria:
 3. `begin_rescan(id)` (used for `r` resume, `r` rescan, `r` on the root after a stop, and delete reconciliation):
    - removes `id`'s children subtree from the model, marking the nodes `REMOVED` (never reused), subtracting their aggregates, counts, ext totals and top-N from the ancestors, and dropping their issues;
    - re-charges hard links whose counted occurrence was removed to a surviving `others` entry;
-   - clears `SkippedByUser`, `INCOMPLETE`, `DONE` and the `inexact_dirs`/`pending_dirs` contributions of `id`, then sets `id` pending (`pending_dirs += 1` up the chain);
+   - clears `SkippedByUser`, `INCOMPLETE`, **`DONE`** and the `inexact_dirs`/`pending_dirs` contributions of `id`, then **sets `PENDING`** and `pending_dirs += 1` up the chain. T003 ignores a `Listing` for a dir that is already `DONE` (architect-confirmed), so without this the rescan's listing would be dropped. Test: `begin_rescan` followed by a fresh `Listing` for `id` is applied;
    - returns the `(path, depth)` the app passes to `ScanHandle::rescan`.
 
    Put the subtree-removal logic in one function (`remove_subtree(id, keep_root: bool)`) in `src/model/control.rs`. T011 reuses it for `Removed`; do not duplicate it.
