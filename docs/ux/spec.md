@@ -31,7 +31,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 | 2 | View tabs | `[1 Tree]  2 Types  3 Largest  4 Skipped !N`. The active tab is in brackets and bold. |
 | 3 | Column header | `SIZE  %  OF PARENT  NAME` |
 | 4 … ~60% of body | Main view | The Tree, or the active list view |
-| next 1 | Map title rule | `Map: <path>`. During a scan it also shows `(updating)`; after a stop, `(partial)`. |
+| next 1 | Map title rule | `Map: <path>`. During a scan it also shows `(updating)`; after a stop, `(partial)`. The hidden-items notice is right-aligned on this rule (§3.3). |
 | ~40% of body | Treemap | Squarified tiles (ADR-006) |
 | −2 | Status line | Scan state, progress, elapsed, ETA, transient messages |
 | −1 | Key hints | Hints change with focus and context (§6) |
@@ -85,6 +85,33 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 - **Label:** first line is `name size pct% [T]`, and the second line holds whatever didn't fit. Labels truncate with `…`. Tiles narrower than 6 cells get no label, but a `!` or `⊘` marker still shows if one applies.
 - **Category tag and fill:** `[V]` video, `[I]` image, `[A]` archive, `[C]` code/text, `[B]` binary, `[D]` documents, `[O]` other/audio. Fill colors are listed in §7.
 - **Aggregate tile:** `(+N smaller)`, grey.
+- **Hidden-items notice (lead ruling, T017).** Tiles that round to zero cells are dropped.
+  - **When it shows:** at least one item with size > 0 is in map scope but has no tile, **and** no `(+N smaller)` tile is drawn. If an aggregate tile is drawn, its N includes all hidden items and there is no notice.
+  - **Not counted:** zero-byte items are not counted as hidden. The "all 0 B" case keeps its own message (§5.5).
+  - **Placement:** right-aligned on the map title rule, inside the rule, with one `─` before and after. It never takes rows from the map, so it works at 80×24, where the map has its minimum of 6 rows.
+  - **Wording, longest first:**
+    1. `14 items too small to show (3.1 MiB)`
+    2. `14 too small to show`
+    3. `+14 hidden`
+  - **Selected item hidden:** if the selected item is one of the hidden items, the map has no highlighted tile, so the notice leads with that fact. Forms, longest first:
+    1. `selected item too small to show · 14 hidden (3.1 MiB)`
+    2. `selected too small · +14 hidden`
+    3. `selected hidden`
+
+    `selected hidden` takes priority over the count.
+  - **Fit order when the rule is too narrow** (one rule for all forms):
+    1. Truncate the path from the left to 24 cells (`…/nss/.cache`).
+    2. Shorten the notice to form 2.
+    3. Drop `(updating)`.
+    4. Truncate the path to 12 cells.
+    5. Shorten the notice to form 3.
+  - **NO_COLOR:** plain text in the rule's own style, with no color or attribute of its own. It reads the same with color on, because meaning is in the words. ASCII fallback: the `─` becomes `-`.
+  - **Count:** N is the number of in-scope items without a tile, and the size is their total in the active mode, with the same unit rules as SIZE. The notice updates on relayout (≤ 2 Hz).
+  - **80×24 examples.** The first line is a short path, so form 1 fits. The second is a long path with the selected item hidden; the path is cut to 24 cells and the notice falls back to form 2:
+```
+ Map: /home/nss/.cache (updating) ─────── 14 items too small to show (3.1 MiB) ─
+ Map: …t-portal/node_modules (updating) ────── selected too small · +14 hidden ─
+```
 - **Scope:** the map shows the children of the selected item's parent. When the zoomed view root itself is selected, the map shows the view root's children (design §3.7).
 
 ## 4. Key flows
@@ -329,6 +356,12 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | Largest | `No files yet.` | Live | Final | Header `partial` | `No files found.` |
 | Skipped | `Nothing skipped.` | Live | Final | Final | `Nothing skipped.` |
 
+**Usage errors (CLI validation, before the TUI starts).** These go to stderr with **exit code 2**. The terminal is not switched to raw mode or the alternate screen. The first line names the flag, the allowed range and the value given. The second line is always `Try '<cmd> --help'.` Messages:
+- `<cmd>: --cell-aspect must be a number from 0.5 to 4.0 (got "abc")`. NaN and infinity are rejected with the same message.
+- `<cmd>: --threads must be a whole number, 1 or more (got "0")`
+- `<cmd>: --top must be a whole number, 1 or more (got "-3")`
+- Several invalid flags: report the first one only, in command-line order, so the user fixes one thing at a time.
+
 **Pre-TUI errors** go to stderr with a non-zero exit, and no TUI is drawn:
 - `<cmd>: /foo: no such file or directory`
 - `<cmd>: /foo: not a directory`
@@ -451,3 +484,15 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 10. **`x`:** the row shows `⊘`, `(scan skipped)` and a `≥` size, and every ancestor shows `≥`. After `r` and completion, all of those marks clear.
 11. **Label truncation:** with a 200-character name and a name containing ESC, the row stays within its width and no raw control byte reaches the buffer.
 12. **Key hints** at 80 columns always contain `? help`.
+13. **Hidden-items notice:**
+    - In a fixture with 1 huge child and 14 tiny children, where layout produces no aggregate tile, the map title row at 80×24 contains `too small to show` or `hidden` together with `14`.
+    - When an aggregate tile is drawn, the row contains neither.
+    - When the selected item is hidden, the row contains `selected`.
+    - Under `NO_COLOR=1`, the notice cells have the default fg and bg.
+    - The map keeps ≥ 6 rows.
+14. **CLI validation:** each of these exits with code 2, prints the matching §5.5 line plus `Try '<cmd> --help'.` to stderr, and writes nothing to stdout:
+    - `--cell-aspect` with `0.49`, `4.01`, `NaN`, `inf` or `abc`
+    - `--threads 0`
+    - `--top 0` or `--top -3`
+
+    The run never enters the alternate screen; check that stdout contains no `\x1b[?1049h`. `--cell-aspect 0.5`, `--cell-aspect 4.0`, `--threads 1` and `--top 1` are accepted.
