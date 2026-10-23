@@ -72,8 +72,8 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 | Field | Rule |
 |---|---|
 | `sel` | `>` on the selected row, which is also drawn in reverse video |
-| SIZE | Size in the active mode, IEC units with 1 decimal (`64.2G`, `812K`, `0B`), right-aligned in 7 cells. Prefixed `≥` when the size is a lower bound (§5.1). |
-| % | Percent of parent, 1 decimal |
+| SIZE | Size in the active mode, in the **compact** format from §7.1 (`64.2G`, `812.0K`, `0B`), right-aligned in 7 cells. Prefixed `≥` when the size is a lower bound (§5.1). |
+| % | Percent of parent, 1 decimal, right-aligned in 5 cells (`100.0`, `35.2`, `0.0`) |
 | BAR | 10 cells, eighth-cell steps (`█▉▊▋▌▍▎▏`); the ASCII fallback is `#` |
 | STATE | One glyph: `◌` scanning, `▲` prioritised, `⊘` skipped by you, `!` has an issue, or blank. The precedence (§5.1) applies when several are true. |
 | NAME | Directories end in `/`. Names are sanitized (design §4 Security) and truncated with `…` by display width. |
@@ -181,7 +181,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 |---|---|
 | Starting, no ETA source (first 2 s) | `◌ Starting…  00:00 elapsed`, with no ETA field. After 2 s it becomes the `Indeterminate` line, which says `ETA unknown`. |
 | Starting, ETA source exists (`Estimating`) | `◌ Starting…  00:00 elapsed  ETA estimating…`. `estimating…` appears **only** when a source exists (design rev 8, T013/T019), so it never promises an estimate that won't come. |
-| Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41k/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
+| Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41.2k/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
 | Scanning, ETA source exists (`Eta`) | `◌ Scanning [bar] ~41%  01:12 elapsed  ETA ~01:44 (estimate, last scan)`. The source label is **only** `last scan` (history file or an earlier scan this session) or `filesystem` (inode count), per design §3.6 / ADR-010. |
 | Past estimate (`OverEstimate`) | `◌ Scanning [bar] ~99%  04:02 elapsed  ETA unknown (past estimate)` |
 | With priority | `▲ First: .cache/` is placed before the scanning text. If it doesn't fit, the bar is dropped first. |
@@ -196,9 +196,9 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 - **Bar and percent:** shown **only when an ETA source exists** (`Eta`, `OverEstimate`). `~%` comes from `EtaView.fraction`, which never shows 100% before Done. In `Indeterminate`, `K of M top-level done` is a count and never a bar or `%`.
 - **Indeterminate fields:**
   - `K of M top-level done` is omitted until the root's first listing arrives, and when the root has no subfolders.
-  - `≥N folders queued` shows `pending_dirs` (k/M suffixes with 1 decimal) and drains to 0.
+  - `≥N folders queued` shows `pending_dirs` (count format, §7.1) and drains to 0.
   - Entries and bytes are seen-so-far totals.
-  - Rate is the EWMA in entries/s (`41k/s`).
+  - Rate is the EWMA in entries/s (count format plus `/s`, e.g. `41.2k/s`).
 - **Source appears mid-scan:** the line switches `Indeterminate → Estimating → Eta` with no transient message. Its changed form is the signal.
 - **80-column drop order (Indeterminate):** fields are removed in this order until the line fits:
   1. rate;
@@ -419,6 +419,37 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 - **ASCII fallback** (no Unicode or `LANG=C`): `◌`→`~`, `▲`→`^`, `⊘`→`-`, `≥`→`>=`, `▾▸`→`-+`, `█…`→`#`, double border→`#`, single border→`+-|`.
 - **Motion:** spinner at no more than 10 fps; data redraws at no more than 10 Hz; map relayout at no more than 2 Hz (design §5). Nothing blinks.
 
+### 7.1 Number formats (exact; one function each, tested)
+
+**Compact size**, used in tree SIZE, map tile labels, and the Types and Largest columns:
+- Units are base 1024: `B K M G T P E`.
+- Below 1024 bytes: an integer followed by `B`, with no decimal. Examples: `0B`, `812B`, `1023B`.
+- Otherwise: divide by 1024^k for the largest k where the value is ≥ 1, then print **always 1 decimal** followed by the unit letter, with no space. Examples: `1.0K`, `812.0K`, `64.2G`.
+- If rounding to 1 decimal gives `1000.0` or more, move up one unit and recompute. So 1,023.96 KiB prints as `1.0M`, never `1024.0K`.
+- The longest output is 6 cells (`999.9G`). With `≥` it is 7, which is the SIZE column width.
+- Rounding is to nearest, as Rust's `{:.1}` does. Tests should avoid exact ties.
+
+**Long size**, used in dialogs, status messages, the Done line and the Indeterminate line:
+- The same number as the compact form, then a space and the IEC unit: `0 B`, `812 B`, `812.0 KiB`, `31.0 GiB`.
+- A lower bound is `≥ 31.0 GiB`, with a space after `≥`.
+
+**Count, exact**, used in dialogs, the Done line and messages:
+- An integer with `,` thousands separators: `48,212`, `1,204,331`. The separator does not depend on locale.
+
+**Count, compact**, used in the Indeterminate line (entries, queued, rate):
+- Base 1000. Below 1000, an integer (`812`).
+- Otherwise, 3 significant digits with a lowercase `k`, or uppercase `M`, `G`: `1.24k`, `12.4k`, `412k`, `1.24M`.
+- If rounding reaches 1000, move up one unit: 999,960 prints as `1.00M`.
+
+**Percent:**
+- Tree % column: 1 decimal, width 5.
+- Map tile labels: an integer followed by `%`. Use `<1%` when the value is above 0 and would round to 0.
+- Never show `100%` on a tile unless it is the only child.
+
+**Time:**
+- Elapsed and ETA print as `MM:SS`, or `H:MM:SS` at 1 hour or more.
+- An ETA always has `~` in front.
+
 ## 8. Accessibility
 Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2.3.1, 2.4.7), plus NO_COLOR and clig.dev conventions.
 - **No color-only meaning.** Every state in §5.1 has a glyph and/or words. Categories carry a letter tag. Selection has `>`. Focus has `*`. Bars always have a number next to them.
@@ -499,3 +530,19 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
     - `--top 0` or `--top -3`
 
     The run never enters the alternate screen; check that stdout contains no `\x1b[?1049h`. `--cell-aspect 0.5`, `--cell-aspect 4.0`, `--threads 1` and `--top 1` are accepted.
+15. **Number formats (§7.1)**, as unit tests over the formatting functions:
+    - **Compact size:**
+
+      | Input bytes | Output |
+      |---|---|
+      | `0` | `0B` |
+      | `1023` | `1023B` |
+      | `1024` | `1.0K` |
+      | `831488` (812 KiB) | `812.0K` |
+      | `1048535` (≈1023.96 KiB) | `1.0M` |
+      | `68932140237` | `64.2G` |
+
+      No output is longer than 6 cells for any `u64`.
+    - **Long size:** `33285996544` → `31.0 GiB`, and `0` → `0 B`.
+    - **Compact count:** `812` → `812`, `12400` → `12.4k`, `999960` → `1.00M`, `1240000` → `1.24M`.
+    - **Exact count:** `1204331` → `1,204,331`.

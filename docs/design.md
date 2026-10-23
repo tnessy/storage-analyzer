@@ -476,7 +476,10 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 **Error handling**
 - Core modules (`scan`, `delete`, `model`, `history`) return typed error enums and preserve `errno`.
 - No `unwrap`/`expect` on I/O paths.
-- A panic is a bug. Install a panic hook that **restores the terminal** before printing.
+- A panic is a bug. Install a panic hook that **restores the terminal** before printing, **but only for panics on the main thread**. The hook runs before `catch_unwind` and for every thread, so restoring the terminal on a worker panic would leave the still-running app in cooked mode on the main screen.
+  - **Non-main threads:** the hook stores the message in a shared slot and does not print or touch the terminal.
+  - **Caught panics** (the delete executor, T010 F2) surface through their `Finished(Partial)` outcome, plus the stored message in the result dialog.
+  - **Uncaught worker panics** (scan): the main loop detects them through the channel disconnecting or `JoinHandle::is_finished`. It shows an error dialog and treats the scan as `Stopped`. The user can still quit normally (T015 owns the hook).
 - User-facing text is produced only in `ui`.
 
 **State**
