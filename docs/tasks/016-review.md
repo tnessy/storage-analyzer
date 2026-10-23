@@ -28,3 +28,9 @@ This is the first build that scans for real.
 5. Expanded folders are re-sorted on every key and frame: **accepted for now.** T009 (R2) measures the row-build time with one expanded folder of 100 k and 1 M children. If an input-driven frame then exceeds the 50 ms target, cache the sorted order per dir, invalidated by a per-dir change counter, in a follow-up.
 
 **Also accepted:** `App::finish()` split out of `run()`; `PgUp/PgDn` by pane height − 1; `production_starter` made public; the new snapshot file under `tests/snapshots/` (insta).
+
+## Re-review 2026-10-23: APPROVED, committed
+- **Fresh run** (clean worktree, T016 files only): fmt ok, whole-tree clippy clean; ui_tree 20, app_loop 19, lib 90 and the other suites pass, twice. Release build ok.
+- **Fix 1:** the root label comes from `Model::path(root)`, sanitized. The test uses a model whose name differs from its path, and it failed on the old code.
+- **Fix 2:** the regenerated snapshot shows the spec's pattern: `├─▾`/`├─▸` for dirs, `├──` for leaves, `│` continuation, `└` on the last sibling, and the root row without a guide. The glyphs live in `Glyphs` (`guide_tee`, `guide_elbow`, `guide_pipe`) and are drawn dim. Both new tests were reported red first.
+- Non-blocking: the mockup shows two spaces between the STATE glyph and the guide, and the render has one. That is cosmetic; it is left to T023's snapshot pass with UX.

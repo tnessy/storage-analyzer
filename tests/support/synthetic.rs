@@ -4,7 +4,7 @@
 
 use storage_analyzer::model::{Model, ModelOptions};
 use storage_analyzer::scan::{RawEntry, ScanMsg};
-use storage_analyzer::types::{Kind, NodeId};
+use storage_analyzer::types::{IssueKind, Kind, NodeId, Op};
 
 pub const ROOT_PATH: &str = "/synthetic/root";
 
@@ -86,4 +86,72 @@ pub fn flood(total_dirs: u32) -> impl Iterator<Item = ScanMsg> {
 /// An endless stream of cheap messages (re-listing an already listed directory), for sustained load.
 pub fn endless() -> impl Iterator<Item = ScanMsg> {
     std::iter::repeat_with(|| listing(NodeId::ROOT, 1, Vec::new()))
+}
+
+/// One directory entry of a synthetic listing.
+pub struct Item {
+    name: String,
+    kind: Kind,
+    bytes: u64,
+    issue: Option<(Op, IssueKind)>,
+}
+
+pub fn file(name: &str, bytes: u64) -> Item {
+    Item {
+        name: name.into(),
+        kind: Kind::File,
+        bytes,
+        issue: None,
+    }
+}
+
+/// A directory entry with no size of its own; its contents arrive in a later listing.
+pub fn folder(name: &str) -> Item {
+    Item {
+        name: name.into(),
+        kind: Kind::Dir,
+        bytes: 0,
+        issue: None,
+    }
+}
+
+impl Item {
+    pub fn issue(mut self, kind: IssueKind) -> Self {
+        self.issue = Some((Op::Open, kind));
+        self
+    }
+}
+
+/// A model plus a node-id allocator, so tests can write listings without bookkeeping.
+pub struct Scan {
+    pub model: Model,
+    next: u32,
+}
+
+impl Scan {
+    /// A scan whose root directory has no size of its own, so child percentages are round.
+    pub fn new() -> Self {
+        let root = entry(ROOT_PATH, Kind::Dir, 0);
+        Self {
+            model: Model::new(ROOT_PATH.into(), root, ModelOptions { top_n: 100 }),
+            next: 1,
+        }
+    }
+
+    /// Applies a listing of `dir` and returns the new ids in order.
+    pub fn list(&mut self, dir: NodeId, items: Vec<Item>) -> Vec<NodeId> {
+        let first = self.next;
+        self.next += items.len() as u32;
+        let entries = items
+            .into_iter()
+            .map(|i| {
+                let mut e = entry(&i.name, i.kind, i.bytes);
+                e.issue = i.issue;
+                e
+            })
+            .collect::<Vec<_>>();
+        let ids = (first..self.next).map(NodeId).collect();
+        self.model.apply(listing(dir, first, entries));
+        ids
+    }
 }

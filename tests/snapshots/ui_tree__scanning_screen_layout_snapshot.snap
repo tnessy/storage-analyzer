@@ -1,0 +1,12 @@
+---
+source: tests/ui_tree.rs
+expression: "pane.join(\"\\n\")"
+---
+    63.3G 100.0  ██████████  ◌ /synthetic/root                                  
+>   42.0G  66.4  ██████▋       ├─▾ Videos/                                      
+    42.0G 100.0  ██████████    │  └── movie.mkv                                 
+    20.0G  31.6  ███▏          ├─▸ Projects/                                    
+     1.0G   1.6  ▏           ◌ ├─▸ .cache/                                      
+   307.2M   0.5                ├── notes.txt                                    
+      ≥0B   0.0              ⊘ ├─▸ .local/ (scan skipped)                       
+       0B   0.0              ! └─▸ Downloads/ (permission denied)

@@ -38,3 +38,6 @@ pub const SCAN_ERROR_TITLE: &str = "Scan error";
 pub const SCAN_ERROR_BODY: &str = "A scan worker stopped unexpectedly:";
 pub const SCAN_ERROR_TAIL: &str = "The scan is stopped; results are partial.";
 pub const SCAN_ERROR_ACTIONS: &str = "[ any key  Close ]";
+
+pub const AGGREGATE_WORD: &str = "smaller";
+pub const EMPTY_FOLDER: &str = "This folder is empty.";

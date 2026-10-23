@@ -742,3 +742,48 @@ fn quit_with_a_full_scan_channel_via_sigterm_returns_promptly() {
         signal_hook::low_level::raise(signal_hook::consts::SIGTERM).unwrap();
     });
 }
+
+#[test]
+fn quitting_during_a_real_scan_with_a_full_channel_returns_promptly() {
+    use storage_analyzer::app::{preflight, production_starter};
+    use storage_analyzer::model::{Model, ModelOptions};
+
+    let dir = tempfile::tempdir().unwrap();
+    for i in 0..3000 {
+        std::fs::create_dir(dir.path().join(format!("d{i:04}"))).unwrap();
+    }
+    let root = preflight(dir.path()).unwrap();
+    let model = Model::new(root.path, root.entry, ModelOptions { top_n: 10 });
+    let clock = FakeClock::default();
+    let script = Script::new(&clock);
+    let backend = Probe {
+        inner: TestBackend::new(WIDTH, HEIGHT),
+        draws: Rc::default(),
+        panic_on_draw: Rc::default(),
+    };
+    let state = AppState::new(cli::parse(APP_ID, [APP_ID]).unwrap(), model);
+    let mut app = App::new(
+        Terminal::new(backend).unwrap(),
+        script.clone(),
+        clock,
+        state,
+        production_starter(),
+        Arc::new(AtomicBool::new(false)),
+        PanicSlot::default(),
+    );
+    app.start().unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    app.step().unwrap();
+    assert!(
+        app.stats().messages_applied > 0,
+        "the real scanner produced nothing"
+    );
+    // The walker refills the channel while the app is not draining it.
+    std::thread::sleep(Duration::from_millis(300));
+    script.at(Duration::ZERO, key(KeyCode::Char('q')));
+    script.at(Duration::ZERO, key(KeyCode::Char('y')));
+    let t0 = Instant::now();
+    assert_eq!(app.step().unwrap(), Flow::Quit);
+    app.finish();
+    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+}

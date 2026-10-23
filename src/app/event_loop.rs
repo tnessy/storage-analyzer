@@ -203,6 +203,12 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
     {
         self.start()?;
         while self.step()? == Flow::Continue {}
+        self.finish();
+        Ok(())
+    }
+
+    /// Cancels the scan and joins its workers.
+    pub fn finish(self) {
         let Self {
             rx, scan, control, ..
         } = self;
@@ -212,7 +218,6 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         if let Some(handle) = scan {
             handle.shutdown();
         }
-        Ok(())
     }
 
     /// One iteration: wait for input, handle all of it, drain scan messages, maybe draw.
@@ -341,6 +346,9 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
     where
         B::Error: 'static,
     {
+        let area = self.terminal.size().map_err(io_err)?;
+        let tree_height = ui::regions(ratatui::layout::Rect::from(area)).main.height;
+        self.state.prepare_view(usize::from(tree_height));
         self.terminal
             .draw(|frame| ui::render(frame, &self.state))
             .map_err(io_err)?;

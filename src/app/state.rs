@@ -6,7 +6,9 @@ use crossterm::event::{KeyEvent, KeyEventKind};
 
 use super::cli::AppConfig;
 use super::keymap::{self, Action};
+use super::tree_state::{AppEvent, TreeState};
 use crate::model::Model;
+use crate::types::NodeId;
 use crate::types::{ScanState, SizeMode};
 use crate::ui::theme::{Glyphs, Theme};
 
@@ -32,6 +34,11 @@ pub struct AppState {
     pub size_mode: SizeMode,
     pub glyphs: Glyphs,
     pub theme: Theme,
+    pub tree: TreeState,
+    /// The folder whose scan is prioritised (set by T020).
+    pub priority: Option<NodeId>,
+    /// Events for other parts of the app; drained by the loop.
+    pub events: Vec<AppEvent>,
     pub dialog: Option<Dialog>,
     pub transient: Option<Transient>,
     pub quit: bool,
@@ -55,6 +62,9 @@ impl AppState {
             size_mode,
             glyphs: Glyphs::unicode(),
             theme: Theme::standard(),
+            tree: TreeState::new(),
+            priority: None,
+            events: Vec::new(),
             dialog: None,
             transient: None,
             quit: false,
@@ -107,9 +117,18 @@ impl AppState {
         match (&self.dialog, action) {
             (None | Some(Dialog::ScanError(_)), Action::Quit) => self.dialog = Some(Dialog::Quit),
             (Some(Dialog::Quit), Action::Quit | Action::Yes) => self.quit = true,
-            (Some(Dialog::Quit), Action::No) => self.dialog = None,
+            (Some(Dialog::Quit), Action::No | Action::Esc | Action::Enter) => self.dialog = None,
             (Some(Dialog::ScanError(_)), _) => self.dialog = None,
-            _ => {}
+            (Some(Dialog::Quit), _) => {}
+            (None, action) => {
+                self.tree
+                    .apply(action, &self.model, self.size_mode, &mut self.events);
+            }
         }
+    }
+
+    /// Brings the tree's rows and viewport up to date with the model; call before drawing.
+    pub fn prepare_view(&mut self, tree_height: usize) {
+        self.tree.prepare(&self.model, self.size_mode, tree_height);
     }
 }

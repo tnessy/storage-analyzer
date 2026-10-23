@@ -1,14 +1,19 @@
-//! Minimal tree view: the root row only (T016 takes this over).
+//! Tree view: one line per visible row (UX §3.2).
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use super::theme::Glyphs;
-use super::{copy, format};
+use super::{copy, format, sanitize};
 use crate::app::state::AppState;
+use crate::app::tree_state::Row;
+use crate::model::Flags;
+use crate::types::{IssueKind, Kind, NodeId};
 
 const BAR_CELLS: usize = 10;
+const SIZE_WIDTH: usize = 7;
 
 pub fn bar(fraction: f64, glyphs: &Glyphs) -> String {
     let eighths = (fraction.clamp(0.0, 1.0) * BAR_CELLS as f64 * 8.0).round() as usize;
@@ -28,31 +33,214 @@ pub fn render_column_header(frame: &mut Frame, area: Rect, state: &AppState) {
     );
 }
 
-pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
-    let g = &state.glyphs;
-    let root = state.model.root();
-    let size = state.model.size(root, state.size_mode);
-    let pending = if state.model.is_complete(root) {
-        " "
+fn fraction(part: u64, whole: u64) -> f64 {
+    if whole == 0 {
+        0.0
     } else {
+        part as f64 / whole as f64
+    }
+}
+
+fn is_skipped(state: &AppState, id: NodeId) -> bool {
+    state
+        .model
+        .issue(id)
+        .is_some_and(|i| i.kind == IssueKind::SkippedByUser)
+}
+
+fn state_glyph(state: &AppState, id: NodeId) -> &'static str {
+    let g = &state.glyphs;
+    let flags = state.model.flags(id);
+    if state.priority == Some(id) {
+        g.prioritised
+    } else if is_skipped(state, id) {
+        g.skipped
+    } else if !state.model.is_complete(id) || flags.contains(Flags::DELETING) {
         g.scanning
+    } else if state.model.issue(id).is_some() {
+        g.issue
+    } else {
+        " "
+    }
+}
+
+fn suffix(state: &AppState, id: NodeId) -> String {
+    if state.model.flags(id).contains(Flags::DELETING) {
+        return " (deleting…)".to_owned();
+    }
+    let Some(issue) = state.model.issue(id) else {
+        return String::new();
     };
-    let name = super::root_label(state);
-    let prefix = format!(
-        "{} {:>7} {:>5}  {}  {} ",
-        g.selection,
-        format::size_iec(size),
-        "100.0",
-        bar(1.0, g),
-        pending
-    );
-    let room = (area.width as usize).saturating_sub(format::width(&prefix));
-    let line = format!("{prefix}{}", format::truncate(&name, room, g.ellipsis));
-    let row = Rect {
-        height: 1.min(area.height),
-        ..area
+    match issue.kind {
+        IssueKind::SkippedByUser => " (scan skipped)".to_owned(),
+        IssueKind::PermissionDenied => " (permission denied)".to_owned(),
+        IssueKind::OtherFilesystem => " (other filesystem)".to_owned(),
+        IssueKind::Vanished => " (vanished during scan)".to_owned(),
+        IssueKind::Other(errno) => {
+            let text = std::io::Error::from_raw_os_error(errno).to_string();
+            let text = text.split(" (os error").next().unwrap_or("").to_lowercase();
+            format!(" (read error: {text})")
+        }
+    }
+}
+
+fn size_column(state: &AppState, bytes: u64, lower_bound: bool) -> String {
+    let text = format::size_iec(bytes);
+    let text = if lower_bound {
+        format!("{}{text}", state.glyphs.lower_bound)
+    } else {
+        text
     };
-    frame.render_widget(Paragraph::new(line).style(state.theme.selected), row);
+    format!("{text:>SIZE_WIDTH$}")
+}
+
+/// One screen line, split so the guides can be drawn dim.
+struct RowText {
+    prefix: String,
+    guides: String,
+    tail: String,
+}
+
+/// `│  ` for each ancestor with later siblings, then `├─▾ ` / `├── ` / `└── `.
+fn guides(state: &AppState, depth: u16, last: bool, trail: u128, marker: &str) -> String {
+    if depth == 0 {
+        return String::new();
+    }
+    let g = &state.glyphs;
+    let mut out = String::new();
+    for level in 1..depth {
+        if trail >> level.min(127) & 1 == 1 {
+            out.push_str(g.guide_pipe);
+            out.push_str("  ");
+        } else {
+            out.push_str("   ");
+        }
+    }
+    out.push_str(if last { g.guide_elbow } else { g.guide_tee });
+    out.push_str(g.rule);
+    out.push_str(marker);
+    out.push(' ');
+    out
+}
+
+fn node_text(state: &AppState, row: &Row, cursor: bool) -> RowText {
+    let Row::Node {
+        id,
+        depth,
+        parent_size,
+        last,
+        trail,
+    } = *row
+    else {
+        unreachable!("node_text takes node rows")
+    };
+    let g = &state.glyphs;
+    let model = &state.model;
+    let size = model.size(id, state.size_mode);
+    let is_dir = model.kind(id) == Kind::Dir;
+    let lower_bound =
+        is_dir && (is_skipped(state, id) || (model.is_complete(id) && !model.is_exact(id)));
+    let marker = if !is_dir {
+        g.rule
+    } else if state.tree.expanded.contains(&id) {
+        g.expanded
+    } else {
+        g.collapsed
+    };
+    let name = if id == state.tree.view_root && depth == 0 && id == NodeId::ROOT {
+        super::root_label(state)
+    } else {
+        sanitize::display_name(model.name(id))
+    };
+    let name = if is_dir && id != NodeId::ROOT {
+        format!("{name}/")
+    } else {
+        name
+    };
+    RowText {
+        prefix: format!(
+            "{} {} {}  {}  {} ",
+            if cursor { g.selection } else { " " },
+            size_column(state, size, lower_bound),
+            format::percent_tree(fraction(size, parent_size)),
+            bar(fraction(size, parent_size), g),
+            state_glyph(state, id),
+        ),
+        guides: guides(state, depth, last, trail, marker),
+        tail: format!("{name}{}", suffix(state, id)),
+    }
+}
+
+fn aggregate_text(state: &AppState, row: &Row, cursor: bool) -> RowText {
+    let Row::Aggregate {
+        dir,
+        depth,
+        count,
+        bytes,
+        trail,
+    } = *row
+    else {
+        unreachable!("aggregate_text takes aggregate rows")
+    };
+    let parent = state.model.size(dir, state.size_mode);
+    RowText {
+        prefix: format!(
+            "{} {} {}  {}    ",
+            if cursor { state.glyphs.selection } else { " " },
+            size_column(state, bytes, false),
+            format::percent_tree(fraction(bytes, parent)),
+            bar(fraction(bytes, parent), &state.glyphs),
+        ),
+        guides: guides(state, depth, true, trail, state.glyphs.rule),
+        tail: format!(
+            "({count} {}, {})",
+            copy::AGGREGATE_WORD,
+            format::size_iec(bytes)
+        ),
+    }
+}
+
+fn row_line(state: &AppState, row: &Row, width: usize) -> Line<'static> {
+    let cursor = state.tree.is_cursor(row);
+    let text = match row {
+        Row::Node { .. } => node_text(state, row, cursor),
+        Row::Aggregate { .. } => aggregate_text(state, row, cursor),
+    };
+    let room = width.saturating_sub(format::width(&text.prefix) + format::width(&text.guides));
+    let tail = format::truncate(&text.tail, room, state.glyphs.ellipsis);
+    let used = format::width(&text.prefix) + format::width(&text.guides) + format::width(&tail);
+    let mut spans = vec![
+        Span::raw(text.prefix),
+        Span::styled(text.guides, state.theme.dim),
+        Span::raw(tail),
+    ];
+    if cursor {
+        spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
+        Line::from(spans).style(state.theme.selected)
+    } else {
+        Line::from(spans)
+    }
+}
+
+pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
+    let tree = &state.tree;
+    let width = usize::from(area.width);
+    let mut lines: Vec<Line> = tree
+        .rows()
+        .iter()
+        .skip(tree.top())
+        .take(usize::from(area.height))
+        .map(|row| row_line(state, row, width))
+        .collect();
+    let root = tree.view_root;
+    if tree.rows().len() == 1
+        && state.model.kind(root) == Kind::Dir
+        && state.model.children(root).is_empty()
+        && state.model.is_complete(root)
+    {
+        lines.push(Line::raw(format!("    {}", copy::EMPTY_FOLDER)));
+    }
+    frame.render_widget(Paragraph::new(Text::from(lines)), area);
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ pub mod copy;
 pub mod dialog;
 pub mod format;
 pub mod header;
+pub mod sanitize;
 pub mod status;
 pub mod theme;
 pub mod tree;
@@ -63,9 +64,8 @@ pub fn regions(area: Rect) -> Regions {
 
 /// The scan root as shown in the header, the root row and the map title.
 pub fn root_label(state: &AppState) -> String {
-    format::sanitize(&String::from_utf8_lossy(
-        state.model.name(state.model.root()),
-    ))
+    use std::os::unix::ffi::OsStrExt;
+    sanitize::display_name(state.model.path(state.model.root()).as_os_str().as_bytes())
 }
 
 fn map_title_text(state: &AppState, width: usize) -> String {

@@ -5,6 +5,7 @@ pub mod event_loop;
 pub mod keymap;
 pub mod state;
 pub mod terminal;
+pub mod tree_state;
 
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
@@ -19,7 +20,7 @@ use rustix::fs::{FileType, Mode, OFlags, fstat, open, stat};
 use rustix::io::Errno;
 
 use crate::model::{Model, ModelOptions};
-use crate::scan::RawEntry;
+use crate::scan::{self, RawEntry, RealFs};
 use crate::types::Kind;
 use cli::{AppConfig, CliError};
 use event_loop::{App, CrosstermEvents, ScanStarter, SystemClock};
@@ -95,9 +96,19 @@ pub fn preflight(path: &Path) -> Result<Root, PreflightError> {
     })
 }
 
-/// Until the walker (T006) can be started from here, the production starter starts nothing.
-fn production_starter() -> ScanStarter {
-    Box::new(|_launch| None)
+/// Starts the real parallel walker.
+pub fn production_starter() -> ScanStarter {
+    Box::new(|launch| {
+        Some(scan::start(
+            Arc::new(RealFs),
+            launch.root,
+            launch.root_dev,
+            launch.options,
+            launch.control,
+            launch.tx,
+            launch.first_id,
+        ))
+    })
 }
 
 fn run_tui(config: AppConfig, root: Root) -> std::io::Result<()> {

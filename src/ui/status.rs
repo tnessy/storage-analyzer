@@ -6,7 +6,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
 
-use super::{copy, format};
+use super::{copy, format, sanitize};
 use crate::app::state::AppState;
 use crate::types::ScanState;
 
@@ -63,7 +63,7 @@ pub fn text(state: &AppState) -> String {
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let line = format::truncate(
-        &format::sanitize(&text(state)),
+        &sanitize::sanitize(&text(state)),
         area.width as usize,
         state.glyphs.ellipsis,
     );

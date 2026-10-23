@@ -119,13 +119,6 @@ pub fn thousands(n: u64) -> String {
     out
 }
 
-/// Replaces control characters, which could drive the terminal, with `?`.
-pub fn sanitize(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_control() { '?' } else { c })
-        .collect()
-}
-
 /// Display width, ignoring nothing: wide characters count 2 cells.
 pub fn width(s: &str) -> usize {
     UnicodeWidthStr::width(s)
@@ -259,10 +252,5 @@ mod tests {
         assert_eq!(width(&truncate("日本語のファイル名", 7, "…")), 7);
         assert_eq!(truncate("abc", 0, "…"), "");
         assert_eq!(truncate("abc", 1, "…"), "…");
-    }
-
-    #[test]
-    fn sanitize_replaces_control_bytes() {
-        assert_eq!(sanitize("a\x1b[31mb\n"), "a?[31mb?");
     }
 }

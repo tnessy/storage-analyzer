@@ -4,8 +4,8 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
-use super::format;
 use super::theme::Glyphs;
+use super::{format, sanitize};
 
 const MAX_WIDTH: u16 = 64;
 
@@ -29,7 +29,7 @@ pub fn render(frame: &mut Frame, screen: Rect, glyphs: &Glyphs, title: &str, lin
     let rect = dialog_rect(screen, lines);
     let body = lines
         .iter()
-        .map(|l| format!("  {}", format::sanitize(l)))
+        .map(|l| format!("  {}", sanitize::sanitize(l)))
         .collect::<Vec<_>>()
         .join("\n");
     let block = Block::bordered()
