@@ -17,7 +17,7 @@ Acceptance criteria:
 5. **One filesystem (ADR-008):** with `one_filesystem` (the default), an entry dir whose `dev` ≠ `root_dev` gets `issue = Some((Stat, OtherFilesystem))` and is **not** enqueued. With `--cross-filesystems`, everything is descended.
 6. **ScanControl:**
    - A popped `Popped::Cancelled(job)` sends `Cancelled { dir }`.
-   - `cancel_all` stops taking jobs. Remaining jobs are drained without being read, and `Done { cancelled: true }` is sent.
+   - `cancel_all` stops taking jobs. After `cancel_all()`, call `queue.wake_all()`. Remaining queued jobs are dropped with `queue.drain_queued()` (T004 review) without being read. When the in-progress jobs finish (`done()` reaches 0), `Done { cancelled: true }` is sent.
 7. **Completion:** when `pending_jobs()` reaches 0, send `Done { cancelled: false }`. This happens again after every rescan that finishes.
 8. **`rescan(dir, path, depth)`:** works during a scan and after Done/Stopped. It clears `cancel_all` via `reset_cancel_all` first. It pushes a job seeded with the existing `NodeId`, so the walker lists `dir` afresh with new child ids. Workers stay alive (they idle on `pop()`) until `shutdown()`.
 9. **Backpressure:** `tx` is a bounded `SyncSender` (the caller chooses the capacity; the app uses 1024). Workers block on a full channel.
