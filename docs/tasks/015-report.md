@@ -33,3 +33,8 @@ Files: `src/main.rs`, `src/app/{mod,cli,state,event_loop,terminal,keymap}.rs`, `
 - Failing first: `tests/app_panic.rs` (a single test, since the hook is process-global) failed with "terminal was restored for a worker panic"; `a_scan_worker_panic_shows_an_error_dialog_and_stops_the_scan` failed on the missing dialog. Both pass now.
 - New file `tests/app_panic.rs`; not in the brief's list, so please confirm.
 - The channel-disconnect path needs a real `ScanHandle` (T006) and is untested; today's tests cover the panic-slot path only.
+
+## Lead review fixes (tests first)
+1. Quit cancels the scan: `run()` calls `ScanControl::cancel_all()` before dropping the receiver and joining. Tests `quit_with_a_full_scan_channel_via_q_y_returns_promptly` and `…_via_sigterm_…` (a real SIGTERM raised against a registered flag) run `App::run` with a worker thread blocked on the full channel, and assert: returns in < 2 s, `is_cancel_all()`, and the blocked worker exits. Failed first with "quit did not cancel the scan".
+2. Panics are tagged with the thread name (`PanicSlot::record(thread, message)`, `WorkerPanic`). Only threads named `scan-*` (`SCAN_THREAD_PREFIX`) stop the scan and open the `Scan error` dialog; others (e.g. a caught delete-executor panic, unnamed threads) are ignored by the loop. Failed first: `a_panic_on_a_non_scan_thread_does_not_stop_the_scan` showed the dialog. T006 must name its workers `scan-*`.
+3. Fresh: lib 86, `app_cli` 7, `app_loop` 18, `app_panic` 1 pass; fmt and clippy (my targets) clean.

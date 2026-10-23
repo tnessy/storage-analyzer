@@ -1,1 +1,156 @@
 //! Rendering and user-facing copy (T015+).
+
+pub mod copy;
+pub mod dialog;
+pub mod format;
+pub mod header;
+pub mod status;
+pub mod theme;
+pub mod tree;
+
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::widgets::Paragraph;
+
+use crate::APP_ID;
+use crate::app::state::{AppState, Dialog};
+use crate::types::ScanState;
+
+/// Rows outside the two panes: header, tabs, column header, map rule, status, hints.
+const CHROME_ROWS: u16 = 6;
+const MIN_MAP_ROWS: u16 = 6;
+
+/// Screen regions (UX §3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Regions {
+    pub header: Rect,
+    pub tabs: Rect,
+    pub column_header: Rect,
+    pub main: Rect,
+    pub map_title: Rect,
+    pub map: Rect,
+    pub status: Rect,
+    pub hints: Rect,
+}
+
+pub fn regions(area: Rect) -> Regions {
+    let body = area.height.saturating_sub(CHROME_ROWS);
+    // Main 60 %, map 40 % rounded in the map's favour, map at least 6 rows.
+    let map_rows = (body * 2).div_ceil(5).max(MIN_MAP_ROWS).min(body);
+    let main_rows = body - map_rows;
+    let mut y = area.y;
+    let mut row = |rows: u16| {
+        let rect = Rect {
+            x: area.x,
+            y: y.min(area.bottom()),
+            width: area.width,
+            height: rows.min(area.bottom().saturating_sub(y)),
+        };
+        y = y.saturating_add(rows);
+        rect
+    };
+    Regions {
+        header: row(1),
+        tabs: row(1),
+        column_header: row(1),
+        main: row(main_rows),
+        map_title: row(1),
+        map: row(map_rows),
+        status: row(1),
+        hints: row(1),
+    }
+}
+
+/// The scan root as shown in the header, the root row and the map title.
+pub fn root_label(state: &AppState) -> String {
+    format::sanitize(&String::from_utf8_lossy(
+        state.model.name(state.model.root()),
+    ))
+}
+
+fn map_title_text(state: &AppState, width: usize) -> String {
+    let g = &state.glyphs;
+    let path = root_label(state);
+    let suffix = match state.model.state() {
+        ScanState::Starting | ScanState::Scanning => format!(" {}", copy::MAP_UPDATING),
+        ScanState::Stopped => format!(" {}", copy::MAP_PARTIAL),
+        ScanState::Done => String::new(),
+    };
+    let head = format!(" {}{path}{suffix} ", copy::MAP_TITLE);
+    let head = format::truncate(&head, width, g.ellipsis);
+    let fill = width.saturating_sub(format::width(&head));
+    format!("{head}{}", g.rule.repeat(fill))
+}
+
+pub fn render(frame: &mut Frame, state: &AppState) {
+    let r = regions(frame.area());
+    header::render_header(frame, r.header, state);
+    header::render_tabs(frame, r.tabs, state);
+    tree::render_column_header(frame, r.column_header, state);
+    tree::render(frame, r.main, state);
+    let title = map_title_text(state, r.map_title.width as usize);
+    frame.render_widget(Paragraph::new(title), r.map_title);
+    if state.model.children(state.model.root()).is_empty() {
+        frame.render_widget(Paragraph::new(copy::MAP_WAITING), r.map);
+    }
+    status::render(frame, r.status, state);
+    header::render_hints(frame, r.hints);
+    match &state.dialog {
+        Some(Dialog::Quit) => {
+            let lines = [
+                copy::QUIT_BODY.to_owned(),
+                String::new(),
+                copy::QUIT_ACTIONS.trim().to_owned(),
+            ];
+            dialog::render(
+                frame,
+                frame.area(),
+                &state.glyphs,
+                &format!("Quit {APP_ID}?"),
+                &lines,
+            );
+        }
+        Some(Dialog::ScanError(message)) => {
+            let mut lines = vec![copy::SCAN_ERROR_BODY.to_owned()];
+            lines.extend(message.lines().map(str::to_owned));
+            lines.extend([
+                String::new(),
+                copy::SCAN_ERROR_TAIL.to_owned(),
+                String::new(),
+                copy::SCAN_ERROR_ACTIONS.to_owned(),
+            ]);
+            dialog::render(
+                frame,
+                frame.area(),
+                &state.glyphs,
+                copy::SCAN_ERROR_TITLE,
+                &lines,
+            );
+        }
+        None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn regions_at_80x24_follow_the_spec() {
+        let r = regions(Rect::new(0, 0, 80, 24));
+        assert_eq!((r.header.y, r.tabs.y, r.column_header.y), (0, 1, 2));
+        // body = 18 rows: map 40 % rounded up = 8, main 10.
+        assert_eq!((r.main.height, r.map.height), (10, 8));
+        assert_eq!(r.map_title.y, r.main.bottom());
+        assert_eq!((r.status.y, r.hints.y), (22, 23));
+    }
+
+    #[test]
+    fn map_keeps_six_rows_and_tiny_areas_do_not_panic() {
+        assert_eq!(regions(Rect::new(0, 0, 80, 14)).map.height, 6);
+        for h in 0..14 {
+            let r = regions(Rect::new(0, 0, 10, h));
+            assert!(r.hints.bottom() <= h);
+        }
+    }
+}

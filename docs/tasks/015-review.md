@@ -39,3 +39,12 @@ So the crossterm path works.
 **Follow-ups routed elsewhere:**
 - `Model::path(root)` returns a trailing slash, because `PathBuf::push("")` adds one. That is a T003 defect, fixed in T005 (engineer-1). Remove the UI's root-name workaround in T016 after that.
 - Name sanitizing currently lives in `ui/format.rs::sanitize`. T016 must consolidate it into one place (`ui/sanitize.rs`), not add a second implementation.
+
+## Re-review 2026-10-23: APPROVED, committed
+- **Fresh evidence** (clean worktree, T015 files only):
+  - fmt ok, whole-tree clippy clean;
+  - lib 86, app_cli 7, app_loop 18, app_panic 1, and every other suite pass, twice;
+  - doc tests ok, release build ok.
+- **Fix 1 verified in code:** `run` calls `control.cancel_all()` before `drop(rx)` and before the scan handle is stopped. The two exit tests (`q y`, and a real SIGTERM, each with a worker blocked on a full channel) were reported red first.
+- **Fix 2 verified:** `PanicSlot` records `WorkerPanic { thread, message }`, and `check_scan_health` only acts on `scan-*` threads. The non-scan-thread test was reported red first.
+- **Note for T021** (added to its brief): `check_scan_health` `take()`s the whole slot and discards non-scan panics. T021 must keep the `delete` thread's messages for the result dialog, for example by putting them back or by splitting the take.
