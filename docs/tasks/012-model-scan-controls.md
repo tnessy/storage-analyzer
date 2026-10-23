@@ -17,12 +17,18 @@ Acceptance criteria:
    Put the subtree-removal logic in one function (`remove_subtree(id, keep_root: bool)`) in `src/model/control.rs`. T011 reuses it for `Removed`; do not duplicate it.
 
    Per D2, the app also calls `ScanControl::remove_prefixes_under(path)`.
-4. **Rescan identity (plan D11, design §3.8):**
-   - `ScanMsg::Identity { dir, dev, ino }` updates the node's identity;
-   - a `DirIssue { Vanished }` for a dir that is a **rescan root** removes that node (and its subtree) instead of recording an issue;
-   - tests for both.
-
-   T012 owns the `apply` arm for `Identity`. T006 lands the variant first.
+4. **Rescan identity (plan D11 as accepted, design §4/§3.8):** handle `ScanMsg::Identity { node, entry: RawEntry }`. This is T012's `apply` arm; T006 lands the variant first.
+   - **Update the node from `entry`:** kind, dev, ino, nlink, own sizes. Apply the size deltas to the ancestors, the ext totals and the top-N, so the totals stay exact.
+   - **Dir became a file, symlink or other:** the node becomes that leaf entry with fresh sizes. Its old children are already removed by `begin_rescan`. It is complete, has no pending work (`pending_dirs` contributions retired up the chain), and the counts move the node from `dirs` to `files` up the chain. `top_level_progress` stays correct if it was a top-level dir.
+   - **File target rescanned** (after an aborted file delete): same update path.
+   - **Inode change (dev, ino differ):** unregister the old (dev, ino) from the hard-link table, re-charging another occurrence if this one was counted, and register the new one when nlink > 1.
+   - **`DirIssue { Vanished }`:** removes the node and its subtree **only when the node is the current rescan root**. Track the open rescan roots, set by `begin_rescan`. Anywhere else, `Vanished` is a normal issue (a skipped path), as in T003.
+   - **Tests (red first):**
+     - dir replaced by a file: the node becomes `Kind::File` with the new sizes and totals stay exact. **A delete retry then succeeds**: `begin_delete` builds a request with the new identity and kind, and T010's executor accepts it (integration via `DeleteHandle`).
+     - dir replaced by a symlink: the node becomes a `Symlink` entry with its own size and no children, and nothing behind it is scanned.
+     - rescan root vanished: the node is removed, ancestors are reduced, and it is not counted.
+     - `Vanished` for a non-root dir during a rescan: recorded as an issue, and the node stays.
+     - inode change on a hard-linked file: the table holds only the new (dev, ino), and the totals are exact.
 5. `top_level_progress` (T003) stays correct through skip, rescan and stop: a rescan of a top-level dir decrements `done` until it completes again, and a skipped top-level dir counts as done (it is complete, not exact). Add a test.
 6. Late messages for `REMOVED` nodes, or for listings of dirs no longer in the model, are ignored without panicking.
 7. `set_focus(Some(id))` / `set_focus(None)`: when the focus node goes `!is_complete → is_complete`, `take_focus_completed()` returns it once, and the focus clears. The UI shows `✓ … fully scanned` (UX §5.4).

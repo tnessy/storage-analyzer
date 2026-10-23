@@ -59,13 +59,24 @@ du parity across fixture shapes (T007). Model changes.
 - **`shutdown()` returns within 2 s even with a full channel and a live receiver that is not draining.** Test this, red first, in addition to the existing dropped-receiver test.
 - `drain_queued()` after `cancel_all` (T004 fix) is part of this.
 
-## Amendment (2026-10-23): rescan refreshes the target's identity (design §3.8 Reconciliation; plan D11)
-A rescan job, unlike a normal job, first re-stats its own directory. It opens the path with the usual flags and `fstat`s the dir fd.
-- **Success:** send the new **`ScanMsg::Identity { dir, dev, ino }`** before the `Listing`.
-  - **Contract change, authorized** for `src/scan/msg.rs`: add exactly this variant.
-  - The model (T012) updates `dev`/`ino` for `dir`. This matters after `ChangedSinceScan`, so a retry of the delete passes the identity check.
-- **ENOENT on open:** send `DirIssue { dir, op: Open, kind: Vanished }`. For a rescan root, T012 removes the node.
-- **ENOTDIR on open** (a dir replaced by a file): send `DirIssue { Open, Other(ENOTDIR) }`.
-- **Tests:**
-  - a rescan after the dir is replaced by a new dir with the same name → `Identity` carries the new ino;
-  - a rescan after the dir is removed → `DirIssue(Vanished)`.
+## Amendment (2026-10-23, rev 2): rescan refreshes the target's identity (design §4 / §3.8; plan D11 as accepted by the architect)
+**Contract change, authorized** for `src/scan/msg.rs`: add exactly **`ScanMsg::Identity { node: NodeId, entry: RawEntry }`**.
+
+**What a rescan job does first:** it re-stats its own target with **no-follow**. It opens the parent path (the same open flags as `open_dir`) and calls `stat_at(parent, name, AT_SYMLINK_NOFOLLOW)`. That gives a full `RawEntry`: name, kind, both sizes, dev, ino, nlink. A rescan job may target a **file** node too (a rescan after an aborted file delete).
+
+**Outcomes:**
+| Situation | Send |
+|---|---|
+| Target is still a dir | `Identity { node, entry }`, then open it as a dir and send its `Listing` as usual |
+| Target is now a file, symlink or other (opening as a dir would fail with ENOTDIR/ELOOP) | `Identity { node, entry }` **only**, no `Listing` and no `DirIssue` |
+| Target is gone (ENOENT on the stat) | `DirIssue { dir: node, op: Stat, kind: Vanished }` |
+| Parent can't be opened, or another stat error | `DirIssue` with the mapped kind |
+
+The `dev` formula is the same as everywhere else (`makedev`).
+
+**Tests:**
+- dir replaced by a new dir with the same name → `Identity` with the new ino, then a `Listing`;
+- dir replaced by a regular file → `Identity` with `kind: File` and its sizes, and no `Listing`;
+- dir replaced by a symlink to a dir → `Identity` with `kind: Symlink`, no `Listing`, and the symlink target is never opened (assert through `FakeFs` call recording);
+- target removed → `DirIssue(Vanished)`;
+- rescan of a file node → `Identity` only.
