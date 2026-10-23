@@ -17,3 +17,10 @@ Red first: `cargo test --test model_apply` -> all 14 tests failed, panicking at 
 - `Done{cancelled:true}`: only marks undone dirs `INCOMPLETE`; `pending_dirs` unchanged.
 - `HardLinks::get` is `#[cfg(test)]` until T011 needs it (avoids a dead-code warning).
 - Accessors index directly: calling them with a never-allocated id panics; check `exists` first.
+
+Note: the proptest run during the red phase wrote `tests/model_apply.proptest-regressions` (a seed from the `todo!` panics); I deleted it.
+
+## Review fixes (2026-10-23)
+- Added `Model::top_level_progress() -> (done, total)`, O(1): `top_total` grows by the root listing's descended dirs; `top_done` increments in `finish_dir` when the top-level ancestor goes from incomplete to complete. Red first: 2 new tests panicked on a `todo!` stub; now green (also covers OTHER_FS/file exclusion, `Cancelled`, and `Done{cancelled:true}`).
+- `pending_dirs` arithmetic is plain with `debug_assert!(pending >= 1)` (no saturating). `inexact_dirs` only increments in this task. `finish_dir` no longer allocates an ancestor `Vec`.
+- Memory breakdown per field is left to T008, as requested.

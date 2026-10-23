@@ -20,3 +20,13 @@ The red-first evidence is reported (14 failing at `todo!`).
 3. Non-blocking: `finish_dir` and `apply_cancelled` collect ancestors into a `Vec` per message. Walking the parent array in place would avoid an allocation on the hot path. Optional.
 
 **Ignored-message decisions accepted.** The documented rule that a rescan must clear `DONE` is already in T012. Panicking accessors on never-allocated ids are accepted (callers use model-issued ids). Commit `tests/model_apply.proptest-regressions` as a seed.
+
+## Re-review 2026-10-23: APPROVED, committed
+- **Fresh run** (clean worktree, T003 + T004 files only): fmt ok, clippy clean; lib 51, model_apply 16, guard tests pass. The release `model_apply` run passes too.
+- **Fixes verified in code:**
+  - `top_level_progress()` returns stored counters, so it is O(1);
+  - `top_done` is bumped in `finish_dir` on the incomplete→complete edge of the top-level ancestor;
+  - `pending_dirs` uses plain arithmetic with `debug_assert!`, and the debug-build proptest exercises it;
+  - `finish_dir` no longer allocates.
+- The red-first evidence for the new tests is reported.
+- The deleted `todo!`-phase proptest seed is fine: a seed from a stub panic has no value.
