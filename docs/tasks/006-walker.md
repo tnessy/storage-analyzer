@@ -11,6 +11,7 @@ Acceptance criteria:
    - `read_entries` uses rustix `Dir`/`RawDir`, skipping `.` and `..`.
    - `stat_at` uses `statx(dirfd, name, AT_SYMLINK_NOFOLLOW, TYPE|MODE|NLINK|INO|SIZE|BLOCKS)`. It needs `STATX_BLOCKS` and maps `dev` from `stx_dev_major`/`minor`.
    - EINTR is retried. No `unwrap` on I/O.
+   - `dev` = `rustix::fs::makedev(stx_dev_major, stx_dev_minor)`, the same formula as the delete executor (T010 review). The executor compares the scan's (dev, ino) against its own statx, so the two must match. Test: `RealFs::stat_at(...).dev == std::fs::symlink_metadata(p).dev()` for a file in a tempdir.
 2. **Workers:** `opts.threads` OS threads, default `ScanOptions::default_threads()` = `min(available_parallelism, 8)`. That default is a **target to tune**, and T009 measures alternatives.
 3. **Per job:** open, read, stat each entry, then **send the `Listing` before enqueuing child dirs** (ordering contract). Ids come from a shared `AtomicU32`: one `fetch_add(len)` per listing, starting at `first_id`.
 4. **Errors (M10):** an open or read failure on a dir sends `DirIssue { dir, op, kind }`. A stat failure on one entry gives a `RawEntry` with `issue = Some((Stat, kind))`; if the stat fails, use `Kind::Other` and zero sizes. Mapping: `EACCES`/`EPERM` → `PermissionDenied`, `ENOENT` → `Vanished`, else `Other(errno)`. Never panic, never stop.
