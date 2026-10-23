@@ -13,7 +13,7 @@ Every brief in this folder includes these rules by reference. Read them once.
 1. **Test first.** Write the tests listed in the brief, run them, and **see them fail** for the right reason. Keep the failing output: your hand-off must include the command and a short excerpt of the failure.
 2. Implement until they pass. No production code without a test that would fail if the behavior broke. Do not write tests that assert on mocks instead of behavior.
 3. **Touch only the files your brief owns.** If you need a change anywhere else (a contract, `Cargo.toml`, another engineer's module), stop and ask Heimdall. Don't do cleanups you happened to notice; list them in your hand-off instead.
-4. **Do not commit.** Heimdall reviews, commits and integrates.
+4. **Do not commit, and do not stage** (no `git add`, `git rm` or `git mv`). Leave changes in the working tree. Heimdall reviews, stages, commits and integrates.
 5. Questions about another engineer's area go to Heimdall, not to the other engineer.
 
 ## Commands (run all of them before hand-off; Heimdall re-runs them)
