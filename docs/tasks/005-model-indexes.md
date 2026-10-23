@@ -45,3 +45,6 @@ Acceptance criteria:
 
 ## Out of scope
 Updating the indexes on delete (T011 calls `recompute_top` and subtracts ext totals). The views (T018).
+
+## Amendment (2026-10-23, from the T015 review)
+- **Fix `Model::path(root)`:** it returns a trailing slash, because `PathBuf::push` of an empty `rel_path` adds one. `path(root)` must equal `root_path` exactly, and `path(child)` must be `root_path/child`. Add a test (red first) to `tests/model_apply.rs`. You own it for this fix.

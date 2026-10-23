@@ -100,3 +100,7 @@ On `y` in the quit-while-deleting dialog, and on SIGTERM/SIGHUP during a delete:
 The **"interrupted: N of M" numbers come from the last `Progress` received, or the executor's shared counters**, never from `Finished`, which may be dropped on exit.
 
 **Test (red first):** a delete running with a `sync_channel(1)` event channel that the test keeps full → `q y` exits within 2 s, and stderr carries the last known N.
+
+## Amendment (2026-10-23, architect's T010 second review + T015 review)
+- **Gate deletes in the model, not on the executor's `Busy`:** `busy` clears just before `Finished` is sent. Use `Model::delete_refusal` (`DELETING`/`TOMBSTONE`, `DeleteRunning`) as the one-delete-at-a-time gate. Treat `submit` → `Busy` only as an unexpected-state fallback (status message, no crash).
+- **Caught executor panic:** `Finished(Partial { failures: [target, Other(EIO)] })` opens the normal result dialog. Also show the stored panic message from `PanicSlot` (thread `delete`) as one extra line in that dialog. Test: an injected executor panic → the result dialog with that line, and the scan is not stopped.

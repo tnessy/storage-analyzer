@@ -80,3 +80,6 @@ The `dev` formula is the same as everywhere else (`makedev`).
 - dir replaced by a symlink to a dir → `Identity` with `kind: Symlink`, no `Listing`, and the symlink target is never opened (assert through `FakeFs` call recording);
 - target removed → `DirIssue(Vanished)`;
 - rescan of a file node → `Identity` only.
+
+## Amendment (2026-10-23, from the T015 review): worker thread names
+Name every worker thread `scan-<i>` with `std::thread::Builder::name`. The app's panic hook attributes panics by thread name: only `scan-*` panics stop the scan. Add a test that spawned workers carry that prefix (`thread::current().name()` inside a `FakeFs` call).

@@ -62,3 +62,8 @@ Command: `cargo test --test ui_tree`. To review snapshots: `cargo insta review`.
 
 ## Out of scope
 The map (T017). `p`/`x`/`r` handling (T020). Delete (T021). The `a` toggle (T023).
+
+## Amendment (2026-10-23, from the T015 review)
+- **Wire the production scanner:** once T006 is merged, `app/mod.rs::production_starter` calls `scan::start` with `RealFs`. Then add the real-handle variant of T015's exit test: a full channel at `q y` → `run` returns within 2 s.
+- **One sanitizer:** move `ui/format.rs::sanitize` into `src/ui/sanitize.rs` (the file this task owns) and use it everywhere. Don't keep two.
+- After T005 fixes `Model::path(root)`, remove the UI's root-name workaround.
