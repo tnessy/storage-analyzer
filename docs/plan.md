@@ -67,7 +67,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T030 | e1 | Tick-spike diagnosis + split listings over 8,192 entries (`last` flag); chunked arrays only if growth is confirmed | T009 |
 | T031 | e1 | RSS 4.3 vs 2.4 GiB: malloc_stats/trim, alternative allocator, then fix (allocator or per-listing name buffer) | T009 |
 | T032 | e2 | **BACKLOG (not in v1, user)**: partial sort plus cached order for huge expanded folders | T016, T009 |
-| T033 | — | Folded into T030 Part 4: user-approved; UX wording in; waiting for the architect's API details | — |
+| T033 | — | Folded into T030 Part 4: user-approved; UX wording and architect API in; ready after Parts 1–3 | — |
 | T026 | e2 | Tile colour assignment, option C: files by type, folders by identity (replaces T025's shades) | T025 |
 
 ### Wave 1: foundations (parallel across engineers)
@@ -100,7 +100,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T023 | e2 | Size toggle, help, too-small, NO_COLOR/ASCII/contrast, snapshot set | T017, T018 |
 
 ### Suggested order per engineer
-- **engineer-1:** done: T001, T003–T008, T010–T012, T024, T027, T028, T028b, T009. **Next: T030 Parts 1–3 (split listings first), then Part 4, the resumable `recompute_top` (user-approved; starts once the architect's API details are in the brief), with the T031 diagnosis alongside.** T031 fixes that need approval (a new allocator dependency, or a `RawEntry` contract change) go back to the team lead for the user. The thread default stays `min(nproc, 8)`; the user does not request a cold-cache measurement.
+- **engineer-1:** done: T001, T003–T008, T010–T012, T024, T027, T028, T028b, T009. **Next: T030 Parts 1–3 (split listings first), then Part 4, the resumable `recompute_top` (user-approved; top-N reserve + resumable rebuild per design §3.4), with the T031 diagnosis alongside.** T031 fixes that need approval (a new allocator dependency, or a `RawEntry` contract change) go back to the team lead for the user. The thread default stays `min(nproc, 8)`; the user does not request a cold-cache measurement.
 - **engineer-2:** done: T002, T013–T023, T023b, T025, T026, T020b, T021. **Next: T029.** (T032 is backlog.)
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.

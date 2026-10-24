@@ -179,6 +179,25 @@ Indexes, all updated in `apply`:
 - **Hard links:** `HashMap<(dev, ino), HardLink { counted: NodeId, others: SmallVec<NodeId> }>`, kept only for `nlink > 1` non-directories. The first occurrence applied is charged, later ones are `HARDLINK_DUP`. **Consequence (fact-based, see §1):** totals match du, but which directory gets charged can differ from du and between runs because parallel order is nondeterministic. This is documented in the UI help.
 - **Extensions:** `ext_of(name)` is the lowercased bytes after the last `.`. Leading-dot names (`.bashrc`) and names with no dot map to `(none)`. Extensions longer than 16 bytes map to `(other)`. `.tar.gz` maps to `gz` in v1. Per-ext `{disk, apparent, count}` cover the whole root (M5). Duplicate hard links are excluded, consistent with the totals.
 - **Top files:** top-N by the current size mode (default N = 100, `--top N`). It is a bounded min-heap during the scan. After a delete the list must stay correct: recompute with an O(files) pass. If that pass exceeds the frame budget at real scale, move it to a helper thread (R2).
+- **Top-N maintenance (T009 follow-up):**
+  - **Reserve:** each size mode keeps the exact top `N + R` files (`R = 4N`, so 500 for N = 100), maintained on insert, re-charge and rescan.
+    - Removing files, whether in or out of the list, keeps it exact for the entries left.
+    - Everything outside the list is no larger than its minimum.
+    - The Largest view shows the first N.
+  - **A delete that removes no list member:** costs nothing extra.
+  - **A rebuild runs only if a removal leaves fewer than N entries:**
+    - `Model::top_rebuild_pending() -> bool`.
+    - `Model::step_top_rebuild(budget: Duration)`: scans node ids from a cursor into a scratch top-`N+R` set (ordered by `(size, NodeId)`, removable), and stops when the budget is spent.
+  - **Who drives it:** the app calls `step_top_rebuild(5 ms)` once per loop iteration after the message drain. While a rebuild is pending, the loop does not block on input longer than 10 ms, as during a scan. When the cursor reaches the end, the scratch set replaces the live lists.
+  - **Mid-rebuild events:**
+    - Applied files with id < cursor are also offered to the scratch set. Listings arrive out of id order; ids ≥ cursor are visited later anyway.
+    - Removals (another delete, a rescan) remove from both the live list and the scratch set.
+    - `begin_rescan(root)` clears both and cancels the rebuild, since the scan re-adds everything.
+  - **Display while rebuilding:**
+    - The Largest view shows the live entries. Each shown entry is correct and in order, though there may be fewer than N.
+    - It adds an `updating…` footer. With no entries it shows `Updating…` rather than "No files found".
+    - Selection is kept by NodeId.
+  - **Ext/category totals are unaffected:** they are subtracted per removed node and are always exact, so they show no `updating…`.
 - **Issues (skipped paths):** `Vec<ScanIssue { node: NodeId, op: Open|Read|Stat, kind: IssueKind }>`, where `IssueKind = PermissionDenied | Vanished | OtherFilesystem | Other(errno)`.
   - The path is rebuilt from `node` on display.
   - Issues are counted in the status bar and listed in the Skipped view (M10, UX `4`).
@@ -559,7 +578,7 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 | Memory | ≤ 120 B/entry average incl. names (**assumption**). That is about 600 MB at 5 M entries, against 60 GiB RAM | ncdu-style compact nodes. Spike R1 |
 | Threads | `min(nproc, 8)` walkers + 1 delete + main | gdu/dust precedent. T009 (warm): wall time flat from 4 to 16 threads; above 4 the single apply thread is the limit and backpressure engages (by design; blocked workers cost 1–3 % of a core). Kept at 8 until a cold-cache run decides |
 | Max work per apply step | No single `apply` call > ~5 ms: listings split at 8,192 entries; node arrays never copy-grow on the main thread (chunked storage, if T009's growth hypothesis is confirmed) | T009: tick max 118–147 ms vs 50 ms input target |
-| Post-delete index refresh | `recompute_top` is resumable, ≤ 5 ms per tick across ticks; the Largest view shows `updating…` meanwhile | T009: 0.4–0.6 s at 20 M entries |
+| Post-delete index refresh | Top-N with a reserve; a resumable rebuild only when the reserve runs out, ≤ 5 ms per loop iteration (§3.4 "Top-N maintenance") | T009: 0.4–0.6 s at 20 M entries |
 | Process memory | Track RSS, not only model bytes. T009: 4.3 GiB process vs ~2.4–2.9 GiB model at 19.85 M entries (≥ 2 threads); diagnosis pending | T009 |
 | Throughput | No target in v1 | brief |
 | Cost | Local only, $0 | — |

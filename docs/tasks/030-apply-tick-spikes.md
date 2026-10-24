@@ -45,33 +45,53 @@ Run it on `$HOME` and record in `spikes/R2-R4-R8-REPORT.md` which cause explains
 ## Files owned
 `src/scan/msg.rs` (the contract change), `src/scan/walker.rs`, `src/model/mod.rs`, `src/model/tree.rs`, `src/model/names.rs` (Part 3 only), `examples/scan_harness.rs`, `tests/scan_walker.rs`, `tests/model_apply.rs`, plus the mechanical `last: true` edits listed above.
 
-## Part 4: resumable `recompute_top` (approved; waiting for the architect's API details)
-> **Approved by the user for v1 (2026-10-23).** **Sequence:** do Parts 1–3 first. Start Part 4 **only after Heimdall adds the architect's API details here** (requested; pending). The UX spec (§5.5, check 22) is already included below. File ownership for this part: the model, the event-loop call, `src/ui/largest_view.rs` and the `LARGEST_UPDATING` constant in `src/ui/copy.rs`.
+## Part 4: top-N with a reserve, plus a resumable rebuild (user-approved; architect's API in design §3.4 "Top-N maintenance")
+**Sequence:** after Parts 1–3. Tests first.
 
-(Folded in from the former T033.)
-**Problem:** `recompute_top` takes 0.4–0.6 s at 20 M entries and runs after every `Removed`, which freezes the UI for about half a second.
-- **Model:**
-  - `apply_delete(Removed)` starts a **resumable** rebuild instead of the one-shot one;
-  - `Model::advance_top_rebuild(budget: Duration) -> bool` (`true` = done) does ≤ ~5 ms of work per call;
+**File ownership:**
+- `src/model/index.rs` and `src/model/mod.rs`;
+- `src/model/delete.rs` and `src/model/control.rs` (the call sites);
+- `src/app/event_loop.rs` (one call, plus the input-wait cap);
+- `src/ui/largest_view.rs`;
+- the `LARGEST_UPDATING` constant in `src/ui/copy.rs`.
+
+### Model (design §3.4)
+- **Reserve.** Each size mode keeps the exact top **N + R** files, with **R = 4N** (500 for N = 100). They are ordered by (size, NodeId) so entries can be removed, and updated on insert, hard-link re-charge and rescan. Removing files keeps the list exact for the remaining entries, because everything outside it is no larger than its smallest entry. `top_files(mode)` returns the first N.
+- **A delete that removes no list entry costs O(removed) and never rebuilds.**
+- **Rebuild only when a removal leaves fewer than N entries**:
   - `Model::top_rebuild_pending() -> bool`;
-  - while pending, `top_files()` returns the previous list **minus nodes that no longer exist**. Ask Heimdall if the architect specifies otherwise.
-  - Also make the T012 rescan path use it (`begin_rescan` currently calls the one-shot rebuild).
-- **Event loop:** call `advance_top_rebuild(5 ms)` once per loop iteration while pending, after input and scan apply.
-- **Largest view (UX §5.5, check 22; wording final):**
-  - **Placement:** `updating…` (ASCII `updating...`), right-aligned on the Largest view's **column-header row** with a 1-cell right margin. Not on the tab, not in the rows. It uses the header's own style, with no colour and no blinking (identical under NO_COLOR). Copy constant `LARGEST_UPDATING`.
-  - **Show it only if the rebuild is still running 200 ms after it started** (no flash); hide it as soon as the new list is in place.
-  - **Rows meanwhile:** the previous list stays, and rows for deleted files are removed at once. The new list then replaces the old one **in a single frame**: no partial or empty state.
-  - **Selection:** stays on the same file. If that file was deleted, it moves to the row now in the same position, or to the last row.
-  - **`⏎` (show in tree) and `d` stay enabled**, since every row shown still exists.
-- **File ownership for this part:** you also own `src/app/event_loop.rs` (the one call), `src/ui/largest_view.rs` and one constant in `src/ui/copy.rs`. engineer-2 is on T029 (`sanitize.rs` and tests) and won't touch these meanwhile.
-- **Tests (red first):**
-  - on a synthetic 1 M-file model, every `advance_top_rebuild(5 ms)` call returns within ~2× budget, and the final list equals the one-shot rebuild;
-  - while pending, `top_files()` holds no removed node;
-  - **Check 22 (UX), with a gated recompute and a fake clock:**
-    - no `updating…` at 100 ms;
-    - present at 250 ms and fitting 80 columns;
-    - the rows equal the old list minus the deleted files;
-    - `⏎` works meanwhile;
-    - the text is gone after completion;
-    - a recompute that finishes under 200 ms never shows it.
-  - **Selection rule:** the selected file survives → it stays selected; it was deleted → the same position, or the last row.
+  - `Model::step_top_rebuild(budget: Duration)`: scans node ids from a cursor into a scratch top-(N+R) set, stops when the budget is spent, and at the end of the cursor swaps the scratch set in as the live lists.
+- **During a rebuild:**
+  - files applied with an id **below** the cursor are also offered to the scratch set;
+  - another delete or a rescan removes nodes from **both** the live list and the scratch set;
+  - `begin_rescan(root)` clears both and **cancels** the rebuild.
+- **Ext/category totals are unaffected:** they are subtracted per removed node and never show `updating…`.
+- **Replaces** the one-shot `recompute_top` at its delete and rescan call sites. Keep `recompute_top` only as a test reference, or remove it.
+
+### Event loop
+Call `step_top_rebuild(5 ms)` once per iteration **after the message drain** while pending. While pending, the loop never blocks on input for more than 10 ms, so the rebuild keeps stepping while the user is idle.
+
+### Largest view: **ruling (Heimdall): UX owns the surface, so UX §5.5 / check 22 applies**
+The architect's footer and `Updating…`-as-empty-state variant is **not** used. The two fit together: the "live" list during a rebuild **is** the old list minus deleted files, exact and in order, possibly fewer than N.
+- **Placement:** `updating…` (ASCII `updating...`), right-aligned on the Largest view's **column-header row** with a 1-cell right margin, in the header style, with no colour or blinking. Copy constant `LARGEST_UPDATING`.
+- **Shown only if `top_rebuild_pending()` is still true 200 ms after the rebuild started;** hidden as soon as the new list is swapped in.
+- **Rows:** the live entries (the old list minus deleted files, in order). The swap to the rebuilt list happens in a **single frame**.
+- **Edge case, every live entry deleted while pending:** show no rows, and **do not** show `No files found.` while a rebuild is pending; the header text appears after 200 ms as usual. Flagged to UX for confirmation (non-blocking).
+- **Selection:** stays on the same file. If that file was deleted, it moves to the row now in the same position, or to the last row.
+- **`⏎` and `d` stay enabled.**
+
+### Acceptance (architect + UX check 22)
+1. **Harness:** no top-N step over 5 ms at 20 M nodes, and deleting a top-level folder on `$HOME` keeps tick max under 50 ms (reported).
+2. A delete that removes no list member triggers **no** rebuild (count rebuild steps through a test hook).
+3. After completion, **both size modes equal a from-scratch recompute.** Property test: random trees and deletes with out-of-order applies, a second delete mid-rebuild, and a root rescan mid-rebuild.
+4. **During a rebuild,** every displayed entry is in the true top N, in the correct order.
+5. **On `$HOME` (20 M),** the rebuild finishes in about 1.5 s of wall time or less, and the loop keeps stepping while idle (reported).
+6. **After a rebuild the reserve is back to N + R;** a second large delete right after doesn't rebuild unless it removes more than R list entries.
+7. **Check 22, with a fake clock and a gated rebuild:**
+   - no `updating…` at 100 ms;
+   - present at 250 ms and fitting 80 columns;
+   - rows equal the old list minus the deleted files;
+   - `⏎` works meanwhile;
+   - the text is gone after completion;
+   - a rebuild under 200 ms never shows it.
+8. **Selection rule:** a survivor stays selected; a deleted selection moves to the same position, or to the last row.
