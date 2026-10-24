@@ -1,6 +1,6 @@
 # Brief: storage-analyzer
 
-Status: v0.6, 2026-10-23. Labels: **Fact** (user stated), **Assumption**, **Open question**.
+Status: v0.7, 2026-10-24. Labels: **Fact** (user stated), **Assumption**, **Open question**.
 
 ## Problem
 - **Fact (user):** Analyze, diagnose and clean up disk space starting from a root folder.
@@ -68,7 +68,15 @@ Status: v0.6, 2026-10-23. Labels: **Fact** (user stated), **Assumption**, **Open
 - **M9 Safe by default:** Nothing is modified except through M7.
 - **M10 Robustness:** Permission errors and files vanishing during the scan do not crash it. Skipped paths are reported.
 
-### Should
+### Should (committed to v1)
+- **M13 Disk read speed in the status bar (v0.7, user request):** show actual disk read throughput in MiB/s while scanning.
+  - Given a running scan and an available throughput source, then the status bar shows the current read speed (MiB/s scale; the UI may switch units, for example `0 B/s` or `KiB/s`, as the value requires). It is one sample per second, so the value changes at most once per second. Until the first full 1 s sample exists, the field is hidden.
+  - Given the source is unavailable or unreadable (for example no permission, or the device can't be determined), then the speed field is hidden. It never shows a fake 0.
+  - Given the source is available and the disk really read nothing (for example a warm cache), then a measured 0 may show. Hidden means "unknown"; 0 means "measured zero".
+  - Given the scan is done, stopped or idle, then the field is not shown (**Assumption**: no stale value).
+  - Given any run, then reading the speed is read-only (M9 holds) and never stalls the UI (M1: input stays responsive, no blocking read on the UI thread).
+  - Given an 80-column terminal, then the status bar still fits (the field shortens or drops before elapsed/ETA or `? help` do). No wrapping.
+  - **Assumption:** "disk read speed" means bytes read from the storage device during the scan, not bytes the tool processed. Which source and device to read is the architect's call. If the measurable value is the scanning process's reads, the UI label must say so.
 - Option to cross filesystems (default is one filesystem; see Decisions 2026-10-23, v0.4). Promoted from Should to default behavior.
 - Opt-in history file (off by default; see Decisions v0.4).
 - Disk usage vs apparent size toggle.
@@ -119,6 +127,14 @@ Closed in v0.3: tree orientation, whole-root scope for file types and largest fi
 - Decision: Layout A chosen. Delete allowed during scan with "≥" lower-bound counts. Zoom and `p` both prioritise a folder's scan. Scan controls `p`/`x`/`r`, shallow-first scanning, and the quit confirmation are in scope (M11, M12). `--max-depth` rejected for now. Command name is a TBD placeholder.
 - Evidence: User decisions.
 - Revisit if: Users delete the wrong thing because of partial counts, or large roots make shallow-first scanning too slow to show useful top-level sizes.
+
+### 2026-10-24: Add disk read speed to the status bar (M13)
+- Context: User request after v1 build, during acceptance.
+- Options: defer to v1.1; add to v1 as Should; add as Must.
+- Decision: Add to v1 as M13 (Should, committed). Small and contained to the status bar and a read-only sampler. It doesn't block the core goals, but the user wants it in v1.
+- Impact: Status bar and elapsed/ETA layout at 80 columns; a new sampler (architect picks the source); UX spec §5.2 and key states; new tests. M1 and M9 constraints apply. Existing work is not otherwise affected.
+- Evidence: User statement via team-lead. Acceptance verdict is held until M13 is built and re-verified.
+- Revisit if: No reliable source exists without root, in which case the field is hidden by design and the user should be told how often it shows.
 
 ### 2026-10-23: ETA only when a source exists (M2 revised)
 - Context: Spike R3 showed the Knuth probe ETA is unreliable on real trees. On the user's btrfs `/home` there are no inode counts, and history is off by default.
