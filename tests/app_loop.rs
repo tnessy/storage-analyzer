@@ -226,7 +226,7 @@ fn rig_with(make: impl FnOnce(&Rc<Cell<u32>>) -> ScanStarter) -> Rig {
     };
     let starter = make(&draws);
     let panics = PanicSlot::default();
-    let config = cli::parse(APP_ID, [APP_ID]).unwrap();
+    let config = cli::parse(APP_ID, [APP_ID, "--no-animation"]).unwrap();
     let state = AppState::new(config, synthetic::model());
     let app = App::new(
         Terminal::new(backend).unwrap(),
@@ -699,7 +699,10 @@ fn assert_quit_is_prompt(quit: impl FnOnce(&Script, &Arc<AtomicBool>)) {
         draws: Rc::default(),
         panic_on_draw: Rc::default(),
     };
-    let state = AppState::new(cli::parse(APP_ID, [APP_ID]).unwrap(), synthetic::model());
+    let state = AppState::new(
+        cli::parse(APP_ID, [APP_ID, "--no-animation"]).unwrap(),
+        synthetic::model(),
+    );
     let app = App::new(
         Terminal::new(backend).unwrap(),
         script.clone(),
@@ -761,7 +764,10 @@ fn quitting_during_a_real_scan_with_a_full_channel_returns_promptly() {
         draws: Rc::default(),
         panic_on_draw: Rc::default(),
     };
-    let state = AppState::new(cli::parse(APP_ID, [APP_ID]).unwrap(), model);
+    let state = AppState::new(
+        cli::parse(APP_ID, [APP_ID, "--no-animation"]).unwrap(),
+        model,
+    );
     let mut app = App::new(
         Terminal::new(backend).unwrap(),
         script.clone(),

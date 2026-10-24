@@ -4,7 +4,8 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, channel, sync_channel};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyEventKind};
@@ -13,9 +14,11 @@ use ratatui::backend::Backend;
 
 use super::state::{AppState, Dialog};
 use super::terminal::PanicSlot;
+use crate::eta::sources::InodeSource;
+use crate::history::{self, HistoryEntry, HistoryError, HistoryStore};
 use crate::scan::{ScanControl, ScanHandle, ScanMsg, ScanOptions};
 use crate::types::NodeId;
-use crate::ui;
+use crate::ui::{self, copy};
 
 /// Longest the main thread spends applying scan messages per iteration.
 pub const APPLY_BUDGET: Duration = Duration::from_millis(8);
@@ -102,6 +105,42 @@ pub struct LoopStats {
     pub max_apply: Duration,
 }
 
+/// What the loop talks to besides the terminal and the scanner; tests swap these.
+pub struct Services {
+    pub history: Arc<dyn HistoryStore>,
+    pub inodes: Box<dyn InodeSource>,
+}
+
+/// Nothing stored, no inode counts: the defaults for tests that don't care.
+struct NoHistory;
+
+impl HistoryStore for NoHistory {
+    fn load(&self) -> Result<Vec<HistoryEntry>, HistoryError> {
+        Ok(Vec::new())
+    }
+
+    fn save(&self, _entries: &[HistoryEntry]) -> Result<(), HistoryError> {
+        Ok(())
+    }
+}
+
+struct NoInodes;
+
+impl InodeSource for NoInodes {
+    fn used_inodes(&self, _root: &std::path::Path) -> Option<u64> {
+        None
+    }
+}
+
+impl Default for Services {
+    fn default() -> Self {
+        Self {
+            history: Arc::new(NoHistory),
+            inodes: Box::new(NoInodes),
+        }
+    }
+}
+
 pub struct App<B: Backend, E: EventSource, C: Clock> {
     terminal: Terminal<B>,
     events: E,
@@ -120,6 +159,10 @@ pub struct App<B: Backend, E: EventSource, C: Clock> {
     /// Every sender is gone; with a running scan that means the workers died.
     rx_disconnected: bool,
     stats: LoopStats,
+    services: Services,
+    /// The history file's contents, arriving from the loader thread.
+    history_rx: Option<Receiver<Result<Vec<HistoryEntry>, HistoryError>>>,
+    last_spinner_frame: usize,
 }
 
 fn io_err<T: std::error::Error>(e: T) -> io::Error {
@@ -154,7 +197,15 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             backlog: false,
             rx_disconnected: false,
             stats: LoopStats::default(),
+            services: Services::default(),
+            history_rx: None,
+            last_spinner_frame: 0,
         }
+    }
+
+    pub fn with_services(mut self, services: Services) -> Self {
+        self.services = services;
+        self
     }
 
     pub fn state(&self) -> &AppState {
@@ -193,7 +244,69 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
                 first_id: NodeId::ROOT.0 + 1,
             });
         }
+        self.start_eta_sources();
         Ok(())
+    }
+
+    /// Frame 0 is on screen: now look for an expected total. The history file is read on its own
+    /// thread so a slow disk never delays input; the inode count is one `statvfs`.
+    fn start_eta_sources(&mut self) {
+        let root = self.state.model.path(self.state.model.root());
+        self.state.eta_sources.inodes = self.services.inodes.used_inodes(&root);
+        if !self.state.config.history {
+            return;
+        }
+        let store = Arc::clone(&self.services.history);
+        let (tx, rx) = channel();
+        let spawned = thread::Builder::new()
+            .name("history-load".into())
+            .spawn(move || {
+                let _ = tx.send(store.load());
+            });
+        if spawned.is_ok() {
+            self.history_rx = Some(rx);
+        }
+    }
+
+    /// Picks up the history file once it has been read.
+    fn poll_history(&mut self) {
+        let Some(rx) = &self.history_rx else {
+            return;
+        };
+        let result = match rx.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Ok(Vec::new()),
+        };
+        self.history_rx = None;
+        match result {
+            Ok(entries) => {
+                let (root, one_filesystem) = self.state.root_key();
+                self.state.eta_sources.history = history::lookup(&entries, &root, one_filesystem)
+                    .map(|e| e.entries)
+                    .filter(|&n| n > 0);
+            }
+            Err(_) => {
+                let now = self.clock.now();
+                self.state.set_transient(copy::HISTORY_IGNORED, now);
+            }
+        }
+        self.needs_draw = true;
+    }
+
+    /// Writes the history record of a scan that has just finished, if the user opted in.
+    fn write_history(&mut self) {
+        let Some(entry) = self.state.pending_history_write.take() else {
+            return;
+        };
+        // Merge into whatever is on disk now; an unreadable file is replaced by this record.
+        let mut entries = self.services.history.load().unwrap_or_default();
+        history::upsert(&mut entries, entry);
+        if self.services.history.save(&entries).is_err() {
+            let now = self.clock.now();
+            self.state.set_transient(copy::HISTORY_NOT_SAVED, now);
+            self.needs_draw = true;
+        }
     }
 
     /// Runs until the user quits or a termination signal arrives.
@@ -248,6 +361,15 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         let now = self.clock.now();
         if self.state.tick(now) {
             self.needs_draw = true;
+        }
+        self.poll_history();
+        self.write_history();
+        if self.state.is_scanning() && !self.state.config.no_animation {
+            let frame = self.state.spinner_frame();
+            if frame != self.last_spinner_frame {
+                self.last_spinner_frame = frame;
+                self.needs_draw = true;
+            }
         }
         let due = self
             .last_draw

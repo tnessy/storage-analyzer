@@ -115,3 +115,8 @@ T025 intercepts `d`/`p`/`x`/`r` on the `..` row in `keymap.rs` (message `"." is 
 
 ## Note from the T026 review
 The rescan sequence (`app::rescan`) must also call `state.tile_colors.forget_reserved(id)`, so the map's reserved file-type hues for that folder are rebuilt after the rescan (UX §7). Test: after a rescan that removes the last `.mp4` from a folder, orange becomes free for its subfolders at the next relayout.
+
+## Note from the T019 review
+- **`r` on the root after Done or Stopped** (a full rescan): call `AppState::use_session_previous()` before starting it, so the ETA uses the in-session previous scan (`last scan`).
+- **The rescan's own `Done { cancelled: false }`** must go through `scan_finished(Root)` again, so `session_previous` and the opt-in history are updated.
+- **Test:** scan, Done, `r` on the root → the status shows `(estimate, last scan)` once the rate settles.

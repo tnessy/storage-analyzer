@@ -9,6 +9,8 @@ use crate::model::Category;
 #[derive(Clone, Debug)]
 pub struct Glyphs {
     pub scanning: &'static str,
+    /// Frames of the activity spinner shown in place of `scanning` (unless animation is off).
+    pub spinner: [&'static str; 4],
     pub prioritised: &'static str,
     pub skipped: &'static str,
     pub issue: &'static str,
@@ -26,6 +28,8 @@ pub struct Glyphs {
     pub guide_elbow: &'static str,
     pub guide_pipe: &'static str,
     pub bar_full: &'static str,
+    /// The unfilled part of a progress bar.
+    pub bar_empty: &'static str,
     /// Index n is a bar cell filled n eighths; index 0 is empty.
     pub bar_eighths: [&'static str; 8],
     pub selection: &'static str,
@@ -38,6 +42,7 @@ impl Glyphs {
     pub fn unicode() -> Self {
         Self {
             scanning: "◌",
+            spinner: ["◜", "◝", "◞", "◟"],
             prioritised: "▲",
             skipped: "⊘",
             issue: "!",
@@ -54,6 +59,7 @@ impl Glyphs {
             guide_elbow: "└",
             guide_pipe: "│",
             bar_full: "█",
+            bar_empty: "░",
             bar_eighths: [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉"],
             selection: ">",
             dialog_border: BorderType::Double,

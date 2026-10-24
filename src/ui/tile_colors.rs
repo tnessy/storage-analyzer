@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(adjacency(&rects), vec![vec![], vec![0], vec![0, 1], vec![]]);
         // Touching only at a corner is not a shared segment.
         let corner = [Rect::new(0, 0, 5, 5), Rect::new(5, 5, 5, 5)];
-        assert_eq!(adjacency(&corner), vec![vec![], vec![]]);
+        assert_eq!(adjacency(&corner), vec![Vec::<usize>::new(), Vec::new()]);
     }
 
     #[test]

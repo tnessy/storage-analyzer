@@ -21,11 +21,13 @@ use ratatui::backend::CrosstermBackend;
 use rustix::fs::{FileType, Mode, OFlags, fstat, open, stat};
 use rustix::io::Errno;
 
+use crate::eta::sources::StatvfsInodes;
+use crate::history::{self, FileHistory};
 use crate::model::{Model, ModelOptions};
 use crate::scan::{self, RawEntry, RealFs};
 use crate::types::Kind;
 use cli::{AppConfig, CliError};
-use event_loop::{App, CrosstermEvents, ScanStarter, SystemClock};
+use event_loop::{App, CrosstermEvents, ScanStarter, Services, SystemClock};
 use state::AppState;
 
 const EXIT_USAGE: u8 = 2;
@@ -98,6 +100,19 @@ pub fn preflight(path: &Path) -> Result<Root, PreflightError> {
     })
 }
 
+/// The real history file (used only with `--history`) and the real `statvfs`.
+fn production_services() -> Services {
+    let mut services = Services {
+        inodes: Box::new(StatvfsInodes),
+        ..Services::default()
+    };
+    let dir = history::state_dir(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
+    if let Some(dir) = dir {
+        services.history = Arc::new(FileHistory::new(dir));
+    }
+    services
+}
+
 /// Starts the real parallel walker.
 pub fn production_starter() -> ScanStarter {
     Box::new(|launch| {
@@ -133,6 +148,7 @@ fn run_tui(config: AppConfig, root: Root) -> std::io::Result<()> {
         terminate,
         panics,
     )
+    .with_services(production_services())
     .run()
 }
 

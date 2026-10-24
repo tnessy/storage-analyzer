@@ -10,21 +10,43 @@ use super::keymap::{self, Action};
 use super::list_state::{ListState, View};
 use super::map_state::{MapState, Pane};
 use super::tree_state::{AppEvent, TreeState};
+use crate::eta::sources::EtaSources;
+use crate::eta::{EtaInput, EtaView, Rate};
+use crate::history::HistoryEntry;
 use crate::layout::Direction;
 use crate::model::Model;
 use crate::types::NodeId;
-use crate::types::{ScanState, SizeMode};
+use crate::types::{IssueKind, ScanState, SizeMode};
 use crate::ui::theme::{Glyphs, Theme};
 use crate::ui::tile_colors::TileColors;
 
 /// How long a transient status message stays (UX §5.2).
 pub const TRANSIENT_TTL: Duration = Duration::from_secs(5);
+/// Time constant of the entries-per-second average (design §3.6).
+const RATE_TAU: Duration = Duration::from_secs(5);
+/// One spinner frame lasts this long, so it never moves faster than 10 fps (UX §7).
+const SPINNER_FRAME_MS: u128 = 100;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dialog {
     Quit,
     /// A scan worker died; the text is its panic message.
     ScanError(String),
+}
+
+/// What this session knows about a finished scan of the root (never persisted).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionRecord {
+    pub root: String,
+    pub one_filesystem: bool,
+    pub entries: u64,
+}
+
+/// Which scan just finished: only the root's own scan feeds the ETA records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScanKind {
+    Root,
+    Subtree,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +77,12 @@ pub struct AppState {
     pub priority: Option<NodeId>,
     /// Events for other parts of the app; drained by the loop.
     pub events: Vec<AppEvent>,
+    /// EWMA of entries per second, fed on every tick.
+    pub rate: Rate,
+    pub eta_sources: EtaSources,
+    pub session_previous: Option<SessionRecord>,
+    /// A finished scan the loop should write to the history file (only with `--history`).
+    pub pending_history_write: Option<HistoryEntry>,
     pub dialog: Option<Dialog>,
     pub transient: Option<Transient>,
     pub quit: bool,
@@ -88,6 +116,10 @@ impl AppState {
             now: Duration::ZERO,
             priority: None,
             events: Vec::new(),
+            rate: Rate::new(RATE_TAU),
+            eta_sources: EtaSources::default(),
+            session_previous: None,
+            pending_history_write: None,
             dialog: None,
             transient: None,
             quit: false,
@@ -104,6 +136,90 @@ impl AppState {
         )
     }
 
+    /// The estimator's view of the scan right now.
+    pub fn eta_view(&self) -> EtaView {
+        let totals = self.model.totals();
+        let (top_done, top_total) = self.model.top_level_progress();
+        crate::eta::view(&EtaInput {
+            elapsed: self.elapsed,
+            seen: totals.entries_seen,
+            pending_dirs: totals.pending_dirs,
+            rate_eps: self.rate.eps(),
+            source: self.eta_sources.best(),
+            state: self.model.state(),
+            top_done,
+            top_total,
+        })
+    }
+
+    /// The canonical root and the options that make two scans comparable.
+    pub fn root_key(&self) -> (String, bool) {
+        let root = self.model.path(self.model.root());
+        (
+            root.to_string_lossy().into_owned(),
+            self.config.one_filesystem,
+        )
+    }
+
+    /// Whether the user skipped any folder; such a scan is not a full picture of its root.
+    fn has_user_skips(&self) -> bool {
+        self.model
+            .issues()
+            .iter()
+            .any(|i| i.kind == IssueKind::SkippedByUser)
+    }
+
+    /// Records a finished scan: the in-session total and, if the user opted in, a history write.
+    /// Only a complete scan of the root counts; subtree rescans never do.
+    pub fn scan_finished(&mut self, kind: ScanKind) {
+        if kind != ScanKind::Root || self.model.state() != ScanState::Done || self.has_user_skips()
+        {
+            return;
+        }
+        let (root, one_filesystem) = self.root_key();
+        let totals = self.model.totals();
+        self.session_previous = Some(SessionRecord {
+            root: root.clone(),
+            one_filesystem,
+            entries: totals.entries_seen,
+        });
+        if self.config.history {
+            self.pending_history_write = Some(HistoryEntry {
+                root,
+                one_filesystem,
+                entries: totals.entries_seen,
+                dirs: totals.dirs,
+                bytes: totals.disk_bytes,
+                duration_ms: u64::try_from(self.elapsed.as_millis()).unwrap_or(u64::MAX),
+            });
+        }
+    }
+
+    /// Takes the in-session record as the ETA source for a rescan of the root, if it is for the
+    /// same root and options.
+    pub fn use_session_previous(&mut self) {
+        let (root, one_filesystem) = self.root_key();
+        self.eta_sources.session = self
+            .session_previous
+            .as_ref()
+            .filter(|r| r.root == root && r.one_filesystem == one_filesystem)
+            .map(|r| r.entries);
+    }
+
+    /// The activity glyph: an arc that turns at 10 frames per second, or a still `◌` with
+    /// `--no-animation`.
+    pub fn spinner_glyph(&self) -> &'static str {
+        if self.config.no_animation {
+            return self.glyphs.scanning;
+        }
+        self.glyphs.spinner[self.spinner_frame()]
+    }
+
+    /// Index of the current spinner frame.
+    pub fn spinner_frame(&self) -> usize {
+        (self.now.as_millis() / SPINNER_FRAME_MS) as usize % self.glyphs.spinner.len()
+    }
+
     /// Shows `text` in place of the status line for 5 s or until the next key.
     pub fn set_transient(&mut self, text: impl Into<String>, now: Duration) {
         self.transient = Some(Transient {
@@ -116,8 +232,16 @@ impl AppState {
     /// Returns whether anything visible changed.
     pub fn tick(&mut self, now: Duration) -> bool {
         self.now = now;
+        if self.is_scanning() {
+            self.rate.sample(
+                now.saturating_sub(self.started_at),
+                self.model.totals().entries_seen,
+            );
+        }
         if self.finished_at.is_none() && !self.is_scanning() {
             self.finished_at = Some(now);
+            self.elapsed = now.saturating_sub(self.started_at);
+            self.scan_finished(ScanKind::Root);
         }
         let elapsed = self
             .finished_at

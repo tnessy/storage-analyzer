@@ -6,6 +6,7 @@ use crate::types::ScanState;
 
 pub mod contract;
 mod rate;
+pub mod sources;
 
 pub use contract::{EtaInput, EtaSource, EtaView};
 pub use rate::Rate;

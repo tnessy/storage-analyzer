@@ -16,6 +16,18 @@ pub const STARTING: &str = "Starting…";
 pub const SCANNING: &str = "Scanning";
 pub const ELAPSED: &str = "elapsed";
 pub const ETA_UNKNOWN: &str = "ETA unknown (no previous scan)";
+pub const ETA_UNKNOWN_SHORT: &str = "ETA unknown";
+pub const ETA_WORD: &str = "ETA";
+pub const ETA_ESTIMATING: &str = "ETA estimating…";
+pub const ETA_PAST_ESTIMATE: &str = "ETA unknown (past estimate)";
+pub const ESTIMATE_WORD: &str = "estimate";
+pub const SOURCE_LAST_SCAN: &str = "last scan";
+pub const SOURCE_FILESYSTEM: &str = "filesystem";
+pub const OF: &str = "of";
+pub const TOP_LEVEL_DONE: &str = "top-level done";
+pub const QUEUED: &str = "queued";
+pub const FOLDERS_QUEUED: &str = "folders queued";
+pub const ENTRIES: &str = "entries";
 pub const STOPPED_TAIL: &str = "partial results · r on the root rescans";
 
 /// Dropped from the right when they don't fit; the last one always stays.
@@ -94,3 +106,6 @@ pub const HELP_MAP_COLOURS: (&str, &str) = (
     "Map: files are coloured by type (tag shows it, e.g. [V] video). Folders end in / and get their own colour,",
     "never one used by a file type in the same view.",
 );
+
+pub const HISTORY_IGNORED: &str = "History file ignored: it could not be read.";
+pub const HISTORY_NOT_SAVED: &str = "Could not save the history file.";
