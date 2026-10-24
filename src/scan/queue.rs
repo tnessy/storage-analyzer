@@ -132,6 +132,22 @@ impl Queue {
 
     pub fn push(&self, job: Job) {
         let mut state = self.lock();
+        self.push_locked(&mut state, job);
+        drop(state);
+        self.ready.notify_one();
+    }
+
+    /// Clears `cancel_all` and queues `job` as one step under the queue lock, so a worker
+    /// that saw the cancel cannot drop this job afterwards (design §3.3).
+    pub fn push_resume(&self, job: Job) {
+        let mut state = self.lock();
+        self.control.reset_cancel_all();
+        self.push_locked(&mut state, job);
+        drop(state);
+        self.ready.notify_all();
+    }
+
+    fn push_locked(&self, state: &mut State, job: Job) {
         state.refresh(&self.control);
         let within_cap = state.heap.len() < self.cap;
         let depth = i64::from(job.depth);
@@ -146,15 +162,22 @@ impl Queue {
         state.pending += 1;
         state.heap.push(entry);
         state.max_queued = state.max_queued.max(state.heap.len());
-        drop(state);
-        self.ready.notify_one();
     }
 
-    /// Blocks until a job is available. `None` once the queue is closed or `cancel_all` is set.
+    /// Blocks until a job is available. `None` once the queue is closed or `cancel_all` is
+    /// set; seeing the cancel also drops every queued job, under the same lock that
+    /// `push_resume` takes, so a resumed job can never be dropped by an older cancel.
     pub fn pop(&self) -> Option<Popped> {
         let mut state = self.lock();
         loop {
-            if state.closed || self.control.is_cancel_all() {
+            if state.closed {
+                return None;
+            }
+            if self.control.is_cancel_all() {
+                let dropped = state.heap.len();
+                state.heap.clear();
+                debug_assert!(state.pending >= dropped);
+                state.pending -= dropped;
                 return None;
             }
             state.refresh(&self.control);
@@ -191,15 +214,6 @@ impl Queue {
     pub fn close(&self) {
         self.lock().closed = true;
         self.ready.notify_all();
-    }
-
-    /// Drops every queued job without reading it and returns how many were dropped.
-    pub fn drain_queued(&self) -> usize {
-        let mut state = self.lock();
-        let drained = state.heap.len();
-        state.heap.clear();
-        state.pending -= drained;
-        drained
     }
 
     /// Wakes blocked consumers so they notice `cancel_all`.
@@ -355,23 +369,48 @@ mod tests {
     }
 
     #[test]
-    fn drain_queued_drops_queued_jobs_but_not_in_progress_ones() {
+    fn pop_under_cancel_all_drops_the_queued_jobs_itself() {
         let (c, q) = queue();
-        for n in 0..10 {
+        for n in 0..6 {
             q.push(job(n, "/r/a", 1));
         }
         pop_dir(&q);
-        pop_dir(&q);
         c.cancel_all();
-        assert_eq!(q.drain_queued(), 8);
-        assert_eq!(q.pending_jobs(), 2);
         assert_eq!(q.pop(), None);
-        assert_eq!(q.done(), 1);
+        assert_eq!(q.pending_jobs(), 1, "only the job in progress is left");
         assert_eq!(q.done(), 0);
+    }
 
-        c.reset_cancel_all();
-        q.push(job(99, "/r/new", 1));
-        assert_eq!(pop_dir(&q), 99, "drained jobs do not come back");
+    #[test]
+    fn a_resumed_job_survives_every_later_pop() {
+        let (c, q) = queue();
+        q.push(job(1, "/r/a", 1));
+        c.cancel_all();
+        assert_eq!(q.pop(), None, "this pop saw the cancel and dropped job 1");
+        q.push_resume(job(2, "/r/b", 1));
+        assert!(!c.is_cancel_all(), "push_resume clears the cancel");
+        assert_eq!(pop_dir(&q), 2);
+        assert_eq!(q.pending_jobs(), 1);
+    }
+
+    #[test]
+    fn cancel_and_resume_racing_never_lose_the_resumed_job() {
+        for _ in 0..200 {
+            let (c, q) = queue();
+            let q = Arc::new(q);
+            c.cancel_all();
+            let popper = {
+                let q = Arc::clone(&q);
+                thread::spawn(move || q.pop())
+            };
+            q.push_resume(job(7, "/r/x", 1));
+            // Either the popper took the job, or it is still queued; it is never lost.
+            match popper.join().unwrap() {
+                Some(Popped::Job(j)) => assert_eq!(j.dir.0, 7),
+                None => assert_eq!(pop_dir(&q), 7),
+                other => panic!("{other:?}"),
+            }
+        }
     }
 
     #[test]

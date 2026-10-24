@@ -184,8 +184,9 @@ impl<F: FsAccess> Worker<F> {
                     shared.send(ScanMsg::Cancelled { dir: job.dir });
                     self.finish();
                 }
-                None if shared.control.is_cancel_all() && !shared.is_closing() => {
-                    shared.queue.drain_queued();
+                // The cancel (and the drop of queued jobs) happened inside `pop`. A rescan may
+                // already have cleared it again, so only a closing handle ends the worker.
+                None if !shared.is_closing() => {
                     shared.check_complete();
                     shared.park_while_cancelled();
                 }
@@ -379,10 +380,13 @@ impl ScanHandle {
         if shared.is_closing() {
             return;
         }
-        shared.control.reset_cancel_all();
+        // One step: a worker deciding that the scan is complete sees either the old state or
+        // the whole resumed one, and the queue clears the cancel and adds the job atomically.
+        let mut done_sent = lock(&shared.done_sent);
+        *done_sent = false;
         lock(&shared.rescans).insert(dir);
-        *lock(&shared.done_sent) = false;
-        shared.queue.push(Job { dir, path, depth });
+        shared.queue.push_resume(Job { dir, path, depth });
+        drop(done_sent);
         shared.wake_parked();
     }
 

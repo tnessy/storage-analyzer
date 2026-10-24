@@ -78,3 +78,5 @@ Requested from the architect (via the team lead) for `src/app/delete_flow.rs` an
 - the five commands;
 - the pty delete re-run, by me;
 - I commit T021 once round 2 is done. T028 lands separately, and I'll re-run the app_controls loop after both.
+
+10. **Reinstated (T028 measurements):** the flaky `app_controls::r_after_a_stop_is_a_full_rescan_at_once` is **also** a test-timing race, independent of the walker race T028 fixed. Instrumented runs before and after T028 never lost the rescan; it just completes inside the `r` keypress. **Fix the test:** hold the gate (grant nothing) between `s`/Stopped and the `rescan_in_flight` + message assertions, then grant and wait. **Prove it:** 200 consecutive runs of the whole `app_controls` test binary (all tests in parallel), 0 failures.

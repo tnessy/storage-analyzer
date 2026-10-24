@@ -740,3 +740,43 @@ fn a_rescan_root_on_another_device_is_listed_when_crossing_is_allowed() {
     assert_eq!(entry.issue, None);
     assert!(matches!(msgs[1], ScanMsg::Listing { .. }));
 }
+
+#[test]
+fn a_rescan_right_after_a_stop_is_never_lost() {
+    for round in 0..200 {
+        let run = begin_with(
+            Arc::new(FakeFs::generate("/r", 3, 3, 1)),
+            "/r",
+            DEV,
+            opts(4, true),
+            Arc::new(ScanControl::new()),
+            2,
+        );
+        run.fs.dir("/");
+        let recv = |run: &Run<FakeFs>| {
+            run.rx
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap_or_else(|_| panic!("round {round}: the scan stalled (rescan lost?)"))
+        };
+        let _first = recv(&run);
+        run.control.cancel_all();
+        while !matches!(recv(&run), ScanMsg::Done { cancelled: true }) {}
+
+        // The stop's Done is out; the last worker is on its way back to the queue.
+        run.handle.rescan(NodeId::ROOT, "/r".into(), 0);
+        let mut saw_root_listing = false;
+        loop {
+            match recv(&run) {
+                ScanMsg::Listing { dir, .. } if dir == NodeId::ROOT => saw_root_listing = true,
+                ScanMsg::Done { cancelled: false } => break,
+                ScanMsg::Done { cancelled: true } => panic!("round {round}: stale stop Done"),
+                _ => {}
+            }
+        }
+        assert!(
+            saw_root_listing,
+            "round {round}: the rescan never listed the root"
+        );
+        run.handle.shutdown();
+    }
+}
