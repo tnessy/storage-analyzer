@@ -1,0 +1,19 @@
+# 011: Disk read rate from block-device counters, resolved by path
+- Status: proposed (2026-10-24)
+- Context: The user wants the disk's read throughput in the status line while scanning. The scan reads only metadata. The user's filesystem is btrfs: subvolumes have anonymous st_dev values (0:36, 0:59) that differ from the superblock id in mountinfo (0:33). There is no root, no writes (M9), and no UI stalls (M1).
+- Options:
+  - `/proc/self/io` read_bytes. Per process, recorded at submit_bio. Page-cache hits are excluded and metadata attribution is unclear, so it likely reads ~0 for a metadata walker. Rejected for a "disk" label (spike S-IO in the backlog).
+  - `/proc/diskstats` by st_dev. Fails on btrfs: the anonymous st_dev isn't a block device and doesn't match mountinfo.
+  - **`/sys/dev/block/<maj:min>/stat` sectors read, resolved by path:** longest mountinfo prefix → source block device (st_rdev) → for btrfs, all members from /sys/fs/btrfs/<uuid>/devices. Stacked devices are used at the level the filesystem sits on.
+  - Main-loop sampling. Rejected in rev 11: reading mountinfo and stat-ing the source can rarely block.
+- Decision:
+  - Use the third option, sampled on a small `diskio` helper thread every 1 s, exposed through the frozen `ReadBytesSource::read_bytes()` (atomics, never blocks). The main-loop meter converts it to a rate over a 1 s window, restarting the window when the device set changes. Sectors are 512 bytes (measured: 64 MiB O_DIRECT gave Δ134,272 sectors).
+  - With --cross-filesystems, sum the deduped union of visited block devices.
+  - Unavailable (no block device, read errors, counter reset) → the field is hidden, never a fake 0. A measured 0 is shown.
+  - The `diskio` module is read-only behind an injectable `SysView` trait.
+- Consequences:
+  - The number is device-wide, so it includes other programs. It is labelled "disk" and help says so.
+  - On a warm cache it correctly shows ~0 B/s while entries/s is high.
+  - One small helper thread, no new dependency.
+- Blast radius / reversibility: The new `diskio` module plus one status-line field. Removable without touching other modules.
+- Revisit if: the user wants the scan's own I/O rather than the device's (then run spike S-IO on /proc/self/io), or a filesystem type appears that resolves wrongly (zfs, bcachefs multi-device).

@@ -65,7 +65,8 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T028b | e1 | rescan_many + cancel flag captured under lock (architect low findings on T028) | T028 |
 | T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
 | T036a | e2 | Read speed: contract (`diskio::ReadBytesSource`), meter, status-line display (UX check 23) | T019, T020 |
-| T036b | e1 | Read speed: real `/proc`/`/sys` source (**pending the architect's design**) | T036a contract |
+| T036b | e1 | Read speed: `/sys` block-device source, resolved by path (design §3.12, ADR-011) | T036a contract |
+| T036c | e2 | Read speed: production wiring, label (UX decides `read` vs `disk`), help line | T036a, T036b, UX |
 | T034 | e2 | Acceptance runbook for M1–M12 (docs only) | — |
 | T030c | e1 | T030 follow-ups: `sync_fs` in `m8_tree`; remove the incremental switch; log `~/workspace` entry count | T030, T030b |
 | T035 | e2 | End-to-end test: a real file name with ESC/bidi characters is never rendered raw | T029, T030b |

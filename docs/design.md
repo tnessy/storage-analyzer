@@ -2,7 +2,11 @@
 
 > **Name placeholder:** the command name is TBD. Docs use `<cmd>` for the command and `<app-id>` for directory names. Code MUST NOT hardcode it: one constant `APP_ID` (used for XDG paths and config) and the binary name taken from Cargo (`env!("CARGO_BIN_NAME")`) for messages. Renaming then means changing `Cargo.toml` + `APP_ID` only.
 
-Status: **accepted**, rev 9, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
+Status: **accepted**, rev 11, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
+
+Rev 11 (2026-10-24): §3.12 aligned to the frozen `ReadBytesSource` contract; the sampler moves to a helper thread.
+
+Rev 10 (2026-10-24): disk read rate in the status line (§3.12, ADR-011).
 
 Rev 9 (2026-10-23): T002 rework recorded. Variant B fails, R3b is closed, and there is no probe in v1.
 
@@ -460,6 +464,64 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
   - **Cancelled subtrees:** cancelling removes unknown remaining work. The estimate guard keeps the total ≥ seen + pending, so the ETA simply finishes early. Done still forces 00:00.
   - **Focus:** focus does not change total work, only the order.
 
+### 3.12 Disk read rate in the status line (ADR-011)
+**Need (user, v1 scope, 2026-10-24):** while scanning, show how fast the *disk* is reading (for example `disk 64.2 MiB/s`), next to the scanner's entries/s.
+
+**Source: block-device counters, primary and only.**
+- **Counter:** `/sys/dev/block/<maj:min>/stat`, field 3, sectors read.
+- **Unit:** 512-byte sectors. **Fact, measured this session:** an `O_DIRECT` read of 64 MiB on `nvme1n1p2` raised sectors by 134,272, which is 68.7 MB including background I/O. The kernel iostats doc does not state the unit.
+- **Scope:** device-wide, including other programs, and labelled as such in help.
+- **`/proc/self/io` `read_bytes` is not used.** It is recorded at `submit_bio()`, page-cache hits don't count, and the walker reads only metadata. It would likely read near 0 and mislead under a "disk" label. (Assumption: whether btrfs metadata reads are attributed to the task is untested; backlog spike S-IO.)
+
+**Resolving the device(s): by path, not by `st_dev`.**
+- **Why not `st_dev`:** btrfs gives every subvolume an anonymous `st_dev` (fact: `/` = 0:36, `/home` = 0:59). `/proc/self/mountinfo` shows the superblock's id instead (0:33 for both), so matching by `st_dev` fails.
+- **Rule for a path P** (the canonical scan root, plus, with `--cross-filesystems`, every mount point that the scan crosses):
+  1. Find the `/proc/self/mountinfo` entry with the longest mount point that is a prefix of P (escape-decoded). Unmounted nested btrfs subvolumes then resolve to their parent's filesystem, which is correct.
+  2. If the source is a path, `stat` it. If it is a block device (`S_ISBLK`), take `st_rdev` → `/sys/dev/block/<maj:min>`. Otherwise (tmpfs, proc, overlay, fuse, nfs) → **unavailable**.
+  3. **If the filesystem type is btrfs:** let the kernel name be the basename of the `/sys/dev/block/<maj:min>` link target. Find `/sys/fs/btrfs/<uuid>/devices/<kname>`; the member set is every entry of that `devices/` directory. This handles multi-device btrfs.
+  4. **Stacking:** use the device the filesystem sits on, whether partition, dm, LUKS or md. Its own `stat` counts reads issued to it. **Never** go up to the parent disk (that would count other partitions) or down to dm slaves (that double-counts or counts other users).
+- **Set:** dedupe by `maj:min`. The rate is the **sum** over the set:
+  - **one-filesystem (default):** the root's filesystem only;
+  - **`--cross-filesystems`:** the union over all filesystems visited. Unavailable ones contribute nothing.
+- **Resolution timing:**
+  - Once before the scan starts, done right after frame 0, since it costs a few small reads of `/proc` and `/sys`.
+  - Lazily when the model first records a new mount crossing (cross-fs mode).
+
+**Sampling (rev 11: helper thread, matching the frozen contract `diskio::ReadBytesSource::read_bytes() -> Option<u64>`):**
+- **Thread `diskio`,** spawned after frame 0:
+  1. It resolves the device set: mountinfo, a `stat` of the source, `/sys`. Rarely this can block (mount-table lock, odd `/dev`), so it stays off the main thread.
+  2. Every 1 s it reads each device's `stat`, sums `sectors × 512`, and stores the cumulative total in an `AtomicU64` plus an availability flag.
+  3. Cross-fs: the main loop sends new mount-crossing paths to it over a channel, and it resolves them and extends the set.
+- **`DeviceStatSource: ReadBytesSource`:** `read_bytes()` only loads the atomics. It never blocks and returns `None` while unavailable.
+- **The meter (main loop, 1 Hz):** `rate = Δ / Δt` over the last 1 s window.
+  - A decrease (counter reset, or the device set changing), or `None` → no value this second.
+  - When the set grows, the thread bumps a set generation; the meter restarts its window on a generation change, so a new device's lifetime counter is never counted as a 1 s spike.
+- **Read error on a device:** drop it from the set (with a generation bump). An empty set → `None`.
+
+**Display:**
+- **When shown:** only while `ScanState::Scanning` (including rescans). Hidden in Done, Stopped and Indeterminate-without-scan.
+- **Format:** `disk ` + long size + `/s` (ux §7.1 long size): `disk 64.2 MiB/s`, `disk 0 B/s`.
+- **Never fabricated:**
+  - **Unavailable:** the field is absent. No `0`, no `?`.
+  - **Before the first full 1 s window:** absent.
+  - **A measured 0** (warm cache) is real and is shown.
+- Placement, the drop order at narrow widths, and the help line (`disk: read rate of the device(s) holding the scan, all programs`) are UX's.
+
+**Interface (new module `diskio`, read-only):**
+```rust
+pub trait ReadBytesSource { fn read_bytes(&self) -> Option<u64>; }       // frozen (lead)
+trait SysView {                                   // injectable; prod = real "/" root
+    fn read_to_string(&self, path: &Path) -> io::Result<String>;
+    fn read_link(&self, path: &Path) -> io::Result<PathBuf>;
+    fn read_dir_names(&self, path: &Path) -> io::Result<Vec<OsString>>;
+    fn stat_rdev(&self, path: &Path) -> io::Result<Option<u64>>;   // Some only for block devices
+}
+fn resolve(view: &dyn SysView, path: &Path) -> Option<DeviceSet>;  // DeviceSet = BTreeSet<(maj, min)>
+fn read_sectors(view: &dyn SysView, set: &DeviceSet) -> Option<u64>;  // Σ field 3 × 512; drops failing devices
+struct DeviceStatSource { total: Arc<AtomicU64>, available: Arc<AtomicBool>, generation: Arc<AtomicU64> }
+```
+- **Write guard:** `diskio` only reads. It uses `read_to_string`, `read_link`, `read_dir` and `stat`, so the CI write guard is unchanged, and it is not on the allowlist.
+
 ## 4. Conventions
 
 **Naming**
@@ -607,6 +669,7 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 | M7 (v0.5) delete of unfinished folders with `≥` | §3.8, §3.11 O3, ADR-007/009 |
 | M11 scan controls `p`/zoom, `x`/`r`, shallow-first | §3.5 queue, §3.11 O1/O2/O4 + `r` resume, ADR-009 |
 | M12 quit confirmation | §3.8 Quit |
+| User v1 scope 2026-10-24: disk read rate while scanning | §3.12, ADR-011 |
 | Could: rescan subtree | §3.5 subtree rescan (needed anyway for delete reconciliation) |
 | Could: export report | **Gap. Not designed in v1** (the brief lists non-interactive output as a non-goal; easy later from the model) |
 | Constraint: Linux, no root, no network | ADR-001; §4 security |
