@@ -42,3 +42,6 @@ Delete parity (T011). UI.
 
 ## Note (2026-10-23, re-order)
 T007 now runs after T012 and T011. `tests/support/fixtures.rs` may already exist from T011: extend it, don't replace it.
+
+## Note from the T011 review
+`du --apparent-size` ignores directory sizes on tmpfs (engineer-1, T011). Apparent-size parity must also be checked on btrfs (`SA_TEST_BTRFS_DIR`), where directories have an apparent size. Report what du does there, and confirm the model's dir-apparent = 0 rule still matches.
