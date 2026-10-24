@@ -63,6 +63,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001â€
 | T027 | e1 | Rescan fixes: top_done underflow; never rescan another filesystem (from the T020 review) | T012, T011, T020 |
 | T028 | e1 | Walker race: a rescan right after a stop can be lost (architect, from the T021 review) | T006, T020, T027 |
 | T028b | e1 | rescan_many + cancel flag captured under lock (architect low findings on T028) | T028 |
+| T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
 | T026 | e2 | Tile colour assignment, option C: files by type, folders by identity (replaces T025's shades) | T025 |
 
 ### Wave 1: foundations (parallel across engineers)

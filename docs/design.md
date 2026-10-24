@@ -509,7 +509,7 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 **Security**
 - **Nothing writes** outside `delete` (user data) and `history` (own state file, only with `--history`). By default the tool makes zero writes unless the user confirms a delete. CI enforces this with a grep test that forbids `remove_*`, `unlinkat`, `File::create`, `OpenOptions` with write, and `rename` outside those modules (M9).
 - Never follow symlinks, either when scanning or when deleting.
-- **Sanitize file names before rendering.** Replace C0/C1 control characters, ESC and DEL with `�` or `\xNN`. Decode invalid UTF-8 lossily for display only. Filesystem operations always use the raw bytes. This prevents terminal escape injection through crafted names.
+- **Sanitize file names before rendering.** Replace C0/C1 control characters, ESC and DEL with `�` or `\xNN`. Decode invalid UTF-8 lossily for display only. Filesystem operations always use the raw bytes. This prevents terminal escape injection through crafted names. **Follow-up (T021 final review):** also escape the Unicode bidi and format controls (U+061C, U+200E/F, U+202A–U+202E, U+2066–U+2069), so a name cannot display reversed or spoofed in the delete confirmation. This applies to every place that uses `sanitize`.
 - Display width is computed with a Unicode width function, so CJK and emoji don't break columns.
 - No network, no telemetry, no privilege escalation.
 

@@ -337,9 +337,10 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ║  Hard links: not fully known (scan not finished).            ║
 ║  This cannot be undone. Files are not moved to the trash.    ║
 ║                                                              ║
-║  y Delete now   p Finish scan first   [ n/Esc/Enter  Cancel ]║
+║  y Delete now  p Finish scan first  [ n/Esc/Enter  Cancel ]  ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
+- **Action line:** exactly `y Delete now  p Finish scan first  [ n/Esc/Enter  Cancel ]`, with 2-space gaps, 58 cells. That leaves a 2-cell right margin at the 64-column dialog width. **Rule for all dialogs:** content never touches the right border; the inner width is dialog width − 6 (2 border cells and 2 × 2 margin).
 - **Live numbers:** the bounds update live, at most twice a second, while the dialog is open.
 - **After `p`:**
   - The `p` hint becomes `▲ Scanning this folder first…`.
