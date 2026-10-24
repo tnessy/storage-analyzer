@@ -101,11 +101,61 @@ pub const PARENT_ROW_NAME: &str = "..";
 pub const PARENT_ROW_UP: &str = "up to";
 pub const MAP_UP_HINT: &str = "⏎ goes up to";
 
-/// The two help-overlay lines about map colours (T023 renders them).
-pub const HELP_MAP_COLOURS: (&str, &str) = (
-    "Map: files are coloured by type (tag shows it, e.g. [V] video). Folders end in / and get their own colour,",
-    "never one used by a file type in the same view.",
-);
-
 pub const HISTORY_IGNORED: &str = "History file ignored: it could not be read.";
 pub const HISTORY_NOT_SAVED: &str = "Could not save the history file.";
+
+pub const SHOWING_APPARENT: &str = "Showing apparent size.";
+pub const SHOWING_DISK: &str = "Showing disk usage.";
+pub const HELP_TITLE: &str = "Help";
+pub const HELP_CLOSE: &str = "Esc or ? close";
+
+/// Hints in the ASCII fallback: letter keys instead of arrows, `Enter`/`Bksp` spelled out.
+pub const TREE_HINTS_ASCII: [&str; 9] = [
+    "j/k move",
+    "h/l fold",
+    "Enter zoom",
+    "Bksp up",
+    "Tab map",
+    "d delete",
+    "p first",
+    "x skip",
+    "? help",
+];
+pub const MAP_HINTS_ASCII: [&str; 7] = [
+    "hjkl move",
+    "Enter zoom",
+    "Bksp up",
+    "Tab tree",
+    "d delete",
+    "p first",
+    "? help",
+];
+pub const LIST_HINTS_ASCII: [&str; 4] = ["j/k move", "Enter show in tree", "d delete", "? help"];
+
+pub const HELP_LEFT_TITLE: &str = "Move and view";
+pub const HELP_RIGHT_TITLE: &str = "Act and scan";
+/// Key column and description for each entry: (unicode keys, ASCII keys, description).
+pub const HELP_LEFT: [(&str, &str, &str); 10] = [
+    ("↑↓ j k", "Up Dn j k", "Move"),
+    ("PgUp PgDn", "PgUp PgDn", "Page"),
+    ("g G", "g G", "Top / bottom"),
+    ("→ l", "Right l", "Expand / into"),
+    ("← h", "Left h", "Collapse / parent"),
+    ("⏎", "Enter", "Zoom in, scan it first"),
+    ("⌫ -", "Bksp -", "Up one level"),
+    ("Tab", "Tab", "Switch tree / map"),
+    ("1 2 3 4", "1 2 3 4", "Tree Types Largest Skipped"),
+    ("a", "a", "Disk usage / apparent"),
+];
+pub const HELP_RIGHT: [(&str, &str, &str); 8] = [
+    ("d Delete", "d Delete", "Delete (asks first)"),
+    ("p", "p", "Scan this folder first"),
+    ("x", "x", "Skip this folder's scan"),
+    ("r", "r", "Resume / rescan folder"),
+    ("s", "s", "Stop the whole scan"),
+    ("?", "?", "Show / hide this help"),
+    ("q Ctrl-C", "q Ctrl-C", "Quit (asks first)"),
+    ("Esc", "Esc", "Close dialog or help"),
+];
+pub const HELP_MAP_NOTE: &str = "Map: files are coloured by type; the tag shows it (e.g. [V] video). Folders end in / and get their own colour, never a file-type colour in this view.";
+pub const HELP_ETA_FOOTER: &str = "ETA appears once a previous complete scan of this root is known. Run with --history to remember past scans (keeps one small file in ~/.local/state).";

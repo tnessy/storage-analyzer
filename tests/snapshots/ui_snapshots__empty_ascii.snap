@@ -1,0 +1,28 @@
+---
+source: tests/ui_snapshots.rs
+expression: "screen(&mut s, 80, 24)"
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped
+*  SIZE      %  OF PARENT      NAME
+>      0B   0.0                /synthetic/root
+    This folder is empty.
+
+
+
+
+
+
+
+
+ Map: /synthetic/root ----------------------------------------------------------
+This folder is empty.
+
+
+
+
+
+
+
+Done in 00:00 - 0 files - 0 B
+ j/k move  h/l fold  Enter zoom  Bksp up  Tab map  d delete  p first  ? help

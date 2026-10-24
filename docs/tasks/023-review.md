@@ -47,3 +47,20 @@ T023's other criteria are met:
 
 ## Update 2026-10-23: UX resolved the open points
 UX answered both open points (`ux/spec.md` §6, §7, check 19). **Item 2 changes:** the help overlay becomes a fixed two-column layout that fits 80×24, with **no scrolling**, so ignore the scrolling request. Item 1 (256-colour labels) stands. The ASCII hint wording is settled (letter keys, `Enter`/`Bksp`). All of it is collected as **"Round 2"** in `023-ui-polish-accessibility.md`. T023 will be committed once, after round 2.
+
+## Round 2 re-review (2026-10-23): APPROVED, committed
+**Fresh evidence** (clean worktree: HEAD plus the T023 files; engineer-1's T012 files excluded):
+- fmt ok, whole-tree clippy clean;
+- every suite passes, twice: ui_accessibility 21, lib 104, …;
+- release build ok.
+
+7 new or rewritten tests were reported red first.
+
+**Real terminal** (by me, release binary under a pty at **80×24**, clean env; keys `? Esc j ⏎ k p q y`):
+
+| Mode | Result |
+|---|---|
+| 256-colour | **0** RGB codes. Labels are `38;5;16`, and the fills are exactly the §7 xterm-256 column. The help overlay shows with `Esc or ? close` at 80×24 ✓ |
+| ASCII (`LANG=C`) | **no** non-ASCII character. Help key column `Up Dn j k`; `..  (up to /usr/share/doc)`; `".." is the parent folder. Press Enter to go up.`; `Bksp` and `Enter` spelled out; **no** single-letter key names (regex `(^| )[EB] (zoom|up|show)`) ✓ |
+
+**Open point for the owner, UX and architect (not blocking):** UX's 18-row help no longer carries the **hard-link attribution note**. Design §3.4 says that note is "documented in the UI help": which directory gets charged for a hard link can differ from du and between runs. 6 rows are spare at 80×24, so it can return as one footer line if UX words it. Raised via the team lead.

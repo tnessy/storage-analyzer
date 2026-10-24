@@ -20,6 +20,10 @@ pub enum Action {
     ZoomOut,
     /// `Tab` and `Shift-Tab` both switch panes.
     SwitchPane,
+    /// `a`: disk usage ↔ apparent size.
+    ToggleSize,
+    /// `?`: the help overlay.
+    Help,
     /// `d` / `Delete`, `p`, `x`, `r`: wired by T020/T021; the `..` row intercepts them first.
     Delete,
     Prioritise,
@@ -53,6 +57,8 @@ pub fn action(key: KeyEvent) -> Action {
         KeyCode::Char('p') => Action::Prioritise,
         KeyCode::Char('x') => Action::Skip,
         KeyCode::Char('r') => Action::Resume,
+        KeyCode::Char('a') => Action::ToggleSize,
+        KeyCode::Char('?') => Action::Help,
         KeyCode::Tab | KeyCode::BackTab => Action::SwitchPane,
         KeyCode::Backspace | KeyCode::Char('-') => Action::ZoomOut,
         _ => Action::Other,

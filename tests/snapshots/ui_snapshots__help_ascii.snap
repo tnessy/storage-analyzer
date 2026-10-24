@@ -1,0 +1,28 @@
+---
+source: tests/ui_snapshots.rs
+expression: "screen(&mut help, 80, 24)"
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped !2
+*  SIZE      %  OF PARENT      NAME
+## Help ########################################################################
+# Move and view                          Act and scan                          #
+# Up Dn j k Move                         d Delete  Delete (asks first)         #
+# PgUp PgDn Page                         p         Scan this folder first      #
+# g G       Top / bottom                 x         Skip this folder's scan     #
+# Right l   Expand / into                r         Resume / rescan folder      #
+# Left h    Collapse / parent            s         Stop the whole scan         #
+# Enter     Zoom in, scan it first       ?         Show / hide this help       #
+# Bksp -    Up one level                 q Ctrl-C  Quit (asks first)           #
+# Tab       Switch tree / map            Esc       Close dialog or help        #
+# 1 2 3 4   Tree Types Largest Skipped                                         #
+# a         Disk usage / apparent                                              #
+#                                                                              #
+# Map: files are coloured by type; the tag shows it (e.g. [V] video). Folders  #
+# end in / and get their own colour, never a file-type colour in this view.    #
+# ETA appears once a previous complete scan of this root is known. Run with    #
+# --history to remember past scans (keeps one small file in ~/.local/state).   #
+############################################################## Esc or ? close ##
++--------------------------------------------------++------------------------+++
+~ Scanning  00:00 elapsed
+ j/k move  h/l fold  Enter zoom  Bksp up  Tab map  d delete  p first  ? help

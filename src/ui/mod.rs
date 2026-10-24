@@ -1,9 +1,12 @@
 //! Rendering and user-facing copy (T015+).
 
+pub mod ascii;
 pub mod copy;
 pub mod dialog;
 pub mod format;
 pub mod header;
+pub mod help;
+pub mod hints;
 pub mod largest_view;
 pub mod list_common;
 pub mod sanitize;
@@ -12,6 +15,7 @@ pub mod status;
 pub mod tabs;
 pub mod theme;
 pub mod tile_colors;
+pub mod too_small;
 pub mod tree;
 pub mod treemap;
 pub mod types_view;
@@ -75,6 +79,22 @@ pub fn root_label(state: &AppState) -> String {
 }
 
 pub fn render(frame: &mut Frame, state: &AppState) {
+    let area = frame.area();
+    if too_small::is_too_small(area.width, area.height) {
+        let text = too_small::message(area.width, area.height);
+        let paragraph =
+            ratatui::widgets::Paragraph::new(text).wrap(ratatui::widgets::Wrap { trim: true });
+        frame.render_widget(paragraph, area);
+    } else {
+        render_screen(frame, state);
+    }
+    render_dialogs(frame, state);
+    if state.glyphs.ascii {
+        ascii::fold(frame.buffer_mut());
+    }
+}
+
+fn render_screen(frame: &mut Frame, state: &AppState) {
     let r = regions(frame.area());
     header::render_header(frame, r.header, state);
     tabs::render_tabs(frame, r.tabs, state);
@@ -88,7 +108,10 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     treemap::render_title(frame, r.map_title, state);
     treemap::render(frame, r.map, state);
     status::render(frame, r.status, state);
-    header::render_hints(frame, r.hints, state);
+    hints::render_hints(frame, r.hints, state);
+}
+
+fn render_dialogs(frame: &mut Frame, state: &AppState) {
     match &state.dialog {
         Some(Dialog::Quit) => {
             let lines = [
@@ -121,6 +144,7 @@ pub fn render(frame: &mut Frame, state: &AppState) {
                 &lines,
             );
         }
+        Some(Dialog::Help) => help::render(frame, frame.area(), state),
         None => {}
     }
 }

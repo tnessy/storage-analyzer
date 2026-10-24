@@ -5,12 +5,12 @@ use ratatui::layout::Rect;
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
 use super::theme::Glyphs;
-use super::{format, sanitize};
+use super::{ascii, format, sanitize};
 
 const MAX_WIDTH: u16 = 64;
 
-fn dialog_rect(screen: Rect, lines: &[String]) -> Rect {
-    let width = MAX_WIDTH.min(screen.width.saturating_sub(4)).max(1);
+fn dialog_rect(screen: Rect, lines: &[String], max_width: u16) -> Rect {
+    let width = max_width.min(screen.width.saturating_sub(4)).max(1);
     let inner = (width as usize).saturating_sub(4).max(1);
     let rows: usize = lines
         .iter()
@@ -26,7 +26,10 @@ fn dialog_rect(screen: Rect, lines: &[String]) -> Rect {
 }
 
 pub fn render(frame: &mut Frame, screen: Rect, glyphs: &Glyphs, title: &str, lines: &[String]) {
-    let rect = dialog_rect(screen, lines);
+    let max_width = MAX_WIDTH;
+    let lines: Vec<String> = lines.iter().map(|l| ascii::text(glyphs, l)).collect();
+    let lines = lines.as_slice();
+    let rect = dialog_rect(screen, lines, max_width);
     let body = lines
         .iter()
         .map(|l| format!("  {}", sanitize::sanitize(l)))
@@ -48,15 +51,15 @@ mod tests {
 
     #[test]
     fn width_is_64_or_screen_minus_4_and_centered() {
-        let r = dialog_rect(Rect::new(0, 0, 100, 30), &["x".into()]);
+        let r = dialog_rect(Rect::new(0, 0, 100, 30), &["x".into()], MAX_WIDTH);
         assert_eq!((r.width, r.x), (64, 18));
-        let r = dialog_rect(Rect::new(0, 0, 50, 30), &["x".into()]);
+        let r = dialog_rect(Rect::new(0, 0, 50, 30), &["x".into()], MAX_WIDTH);
         assert_eq!((r.width, r.x), (46, 2));
     }
 
     #[test]
     fn long_lines_wrap_instead_of_truncating() {
-        let r = dialog_rect(Rect::new(0, 0, 80, 40), &["y".repeat(120)]);
+        let r = dialog_rect(Rect::new(0, 0, 80, 40), &["y".repeat(120)], MAX_WIDTH);
         assert_eq!(r.height, 2 + 2);
     }
 }

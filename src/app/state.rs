@@ -30,6 +30,8 @@ const SPINNER_FRAME_MS: u128 = 100;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dialog {
     Quit,
+    /// The key reference (`?`).
+    Help,
     /// A scan worker died; the text is its panic message.
     ScanError(String),
 }
@@ -71,6 +73,8 @@ pub struct AppState {
     list_height: usize,
     /// Which pane the arrow keys drive.
     pub focus: Pane,
+    /// The terminal size at the last `prepare_view`.
+    pub screen: Rect,
     /// The loop clock at the last `tick`.
     pub now: Duration,
     /// The folder whose scan is prioritised (set by T020).
@@ -113,6 +117,7 @@ impl AppState {
             view: View::Tree,
             list_height: 20,
             focus: Pane::Tree,
+            screen: Rect::new(0, 0, 80, 24),
             now: Duration::ZERO,
             priority: None,
             events: Vec::new(),
@@ -262,12 +267,20 @@ impl AppState {
         }
         self.transient = None;
         let action = keymap::action(key);
+        let too_small = crate::ui::too_small::is_too_small(self.screen.width, self.screen.height);
         match (&self.dialog, action) {
             (None | Some(Dialog::ScanError(_)), Action::Quit) => self.dialog = Some(Dialog::Quit),
             (Some(Dialog::Quit), Action::Quit | Action::Yes) => self.quit = true,
             (Some(Dialog::Quit), Action::No | Action::Esc | Action::Enter) => self.dialog = None,
             (Some(Dialog::ScanError(_)), _) => self.dialog = None,
             (Some(Dialog::Quit), _) => {}
+            (Some(Dialog::Help), Action::Esc | Action::Help) => self.dialog = None,
+            (Some(Dialog::Help), Action::Quit) => self.dialog = Some(Dialog::Quit),
+            (Some(Dialog::Help), _) => {}
+            // Below 80×24 every key but the quit keys is ignored (UX §3).
+            (None, _) if too_small => {}
+            (None, Action::Help) => self.dialog = Some(Dialog::Help),
+            (None, Action::ToggleSize) => self.toggle_size_mode(),
             (None, Action::View(n)) => {
                 self.view = [View::Tree, View::Types, View::Largest, View::Skipped]
                     [usize::from(n.clamp(1, 4)) - 1];
@@ -299,6 +312,16 @@ impl AppState {
                     .apply(action, &self.model, self.size_mode, &mut self.events);
             }
         }
+    }
+
+    fn toggle_size_mode(&mut self) {
+        let (mode, text) = match self.size_mode {
+            SizeMode::Disk => (SizeMode::Apparent, crate::ui::copy::SHOWING_APPARENT),
+            SizeMode::Apparent => (SizeMode::Disk, crate::ui::copy::SHOWING_DISK),
+        };
+        self.size_mode = mode;
+        let now = self.now;
+        self.set_transient(text, now);
     }
 
     /// From the `..` row, `Tab` moves to the map and picks its largest tile.
@@ -360,6 +383,7 @@ impl AppState {
 
     /// Brings the tree's rows, the map's layout and the viewports up to date; call before drawing.
     pub fn prepare_view(&mut self, screen: Rect) {
+        self.screen = screen;
         let regions = crate::ui::regions(screen);
         self.tree.prepare(
             &self.model,

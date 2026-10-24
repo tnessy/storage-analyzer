@@ -37,6 +37,21 @@ fn render(state: &mut AppState, w: u16, h: u16) -> Buffer {
     terminal.backend().buffer().clone()
 }
 
+/// Draws only the map title and the map, so the map can be tested at sizes below the 80×24
+/// floor (the full screen shows just a message there).
+fn render_map_only(state: &mut AppState, w: u16, h: u16) -> Buffer {
+    state.prepare_view(Rect::new(0, 0, w, h));
+    let regions = ui::regions(Rect::new(0, 0, w, h));
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+    terminal
+        .draw(|f| {
+            ui::treemap::render_title(f, regions.map_title, state);
+            ui::treemap::render(f, regions.map, state);
+        })
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
 fn row_text(buf: &Buffer, y: u16) -> String {
     (0..buf.area.width)
         .map(|x| buf[(x, y)].symbol().to_owned())
@@ -380,7 +395,7 @@ fn issue_markers_show_even_on_tiles_too_small_for_a_label() {
         ],
     );
     let mut state = app_state(scan);
-    let buf = render(&mut state, 30, 14);
+    let buf = render_map_only(&mut state, 30, 14);
     let find = |id: NodeId, glyph: &str| {
         let r = tile_of(&state, id);
         (r.x..r.right()).any(|x| (r.y..r.bottom()).any(|y| buf[(x, y)].symbol() == glyph))
@@ -406,7 +421,7 @@ fn tiny_scene(extra: Vec<synthetic::Item>) -> Scan {
 fn tiny_items_without_an_aggregate_tile_show_the_hidden_notice() {
     let scan = tiny_scene((0..3).map(|i| file(&format!("tiny{i}"), 1)).collect());
     let mut state = app_state(scan);
-    let buf = render(&mut state, 80, 12);
+    let buf = render_map_only(&mut state, 80, 12);
     assert!(
         state.map.tiles().iter().all(|t| t.id.is_some()),
         "no aggregate tile fits"
@@ -421,7 +436,7 @@ fn tiny_items_without_an_aggregate_tile_show_the_hidden_notice() {
 fn the_notice_shortens_on_a_narrow_title_rule() {
     let scan = tiny_scene((0..3).map(|i| file(&format!("tiny{i}"), 1)).collect());
     let mut state = app_state(scan);
-    let buf = render(&mut state, 40, 12);
+    let buf = render_map_only(&mut state, 40, 12);
     let title = title_row(&buf, 40, 12);
     assert!(title.contains("+3 hidden"), "{title}");
 }
@@ -431,7 +446,7 @@ fn zero_byte_items_are_not_hidden_items() {
     let mut extra: Vec<_> = (0..3).map(|i| file(&format!("zero{i}"), 0)).collect();
     extra.extend((0..2).map(|i| file(&format!("tiny{i}"), 1)));
     let mut state = app_state(tiny_scene(extra));
-    let buf = render(&mut state, 80, 12);
+    let buf = render_map_only(&mut state, 80, 12);
     let title = title_row(&buf, 80, 12);
     assert!(title.contains("2 items too small to show"), "{title}");
 }

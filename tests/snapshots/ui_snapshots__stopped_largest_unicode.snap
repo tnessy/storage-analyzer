@@ -1,0 +1,28 @@
+---
+source: tests/ui_snapshots.rs
+expression: "screen(&mut s, 80, 24)"
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ 1 Tree  2 Types  [3 Largest]  4 Skipped !2
+   SIZE  PATH                                                            partial
+>   38.1M  /synthetic/root/Videos/movie.mkv
+    19.1M  /synthetic/root/Projects/repo.zip
+   976.6K  /synthetic/root/.cache/misc.bin
+   293.0K  /synthetic/root/notes.txt
+
+
+
+
+
+
+ Map: /synthetic/root (partial) ────────────────────────────────────────────────
+┌Videos/ 38.1M 65%─────────────────────────────────┐┌Projects/ 19.1M 33%─────┐┌┐
+│                                                  ││                        │││
+│                                                  ││                        │││
+│                                                  ││                        │││
+│                                                  ││                        │││
+│                                                  ││                        │└┘
+│                                                  ││                        │┌┐
+└──────────────────────────────────────────────────┘└────────────────────────┘└┘
+■ Stopped at 00:00 · partial results · r on the root rescans
+ ↑↓ move  ⏎ show in tree  d delete  ? help

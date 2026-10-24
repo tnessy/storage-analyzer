@@ -1,0 +1,28 @@
+---
+source: tests/ui_snapshots.rs
+expression: "screen(&mut s, 80, 24)"
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped !2
+*  SIZE      %  OF PARENT      NAME
+>   58.5M 100.0  ██████████  ◌ /synthetic/root
+    38.1M  65.3  ██████▌       ├─▸ Videos/
+    19.1M  32.6  ███▎          ├─▸ Projects/
+   976.6K   1.6  ▏           ◌ ├─▸ .cache/
+   293.0K   0.5                ├── notes.txt
+      ≥0B   0.0              ⊘ ├─▸ .local/ (scan skipped)
+       0B   0.0              ! └─▸ Downloads/ (permission denied)
+
+
+
+ Map: /synthetic/root (partial) ────────────────────────────────────────────────
+┌Videos/ 38.1M 65%─────────────────────────────────┐┌Projects/ 19.1M 33%─────┐┌┐
+│                                                  ││                        │││
+│                                                  ││                        │││
+│                                                  ││                        │││
+│                                                  ││                        │││
+│                                                  ││                        │└┘
+│                                                  ││                        │┌┐
+└──────────────────────────────────────────────────┘└────────────────────────┘└┘
+■ Stopped at 00:00 · partial results · r on the root rescans
+ ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help

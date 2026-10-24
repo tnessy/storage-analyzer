@@ -130,7 +130,11 @@ pub fn production_starter() -> ScanStarter {
 
 fn run_tui(config: AppConfig, root: Root) -> std::io::Result<()> {
     let model = Model::new(root.path, root.entry, ModelOptions { top_n: config.top });
-    let state = AppState::new(config, model);
+    let mut state = AppState::new(config, model);
+    // Colour depth and glyph set come from the environment, once.
+    let env = |name: &str| std::env::var(name).ok();
+    state.theme.depth = crate::ui::theme::ColorDepth::detect(&env);
+    state.glyphs = crate::ui::theme::Glyphs::detect(&env);
     let terminate = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGHUP] {
         signal_hook::flag::register(signal, terminate.clone())?;

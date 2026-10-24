@@ -7,8 +7,6 @@ use ratatui::widgets::Paragraph;
 
 use super::{copy, format, sanitize};
 use crate::APP_ID;
-use crate::app::list_state::View;
-use crate::app::map_state::Pane;
 use crate::app::state::AppState;
 use crate::types::SizeMode;
 
@@ -45,45 +43,4 @@ fn breadcrumb(state: &AppState) -> String {
             .map(|c| sanitize::display_name(c.as_os_str().as_bytes())),
     );
     parts.join(&format!(" {} ", state.glyphs.breadcrumb))
-}
-
-/// Hints are dropped from the right, but the last one (`? help`) always stays.
-pub fn fit_hints(hints: &[&str], width: usize) -> String {
-    let (last, rest) = hints.split_last().expect("hints are never empty");
-    let join = |n: usize| {
-        let mut parts: Vec<&str> = rest[..n].to_vec();
-        parts.push(last);
-        format!(" {}", parts.join("  "))
-    };
-    (0..=rest.len())
-        .rev()
-        .map(join)
-        .find(|s| format::width(s) <= width)
-        .unwrap_or_else(|| join(0))
-}
-
-pub fn render_hints(frame: &mut Frame, area: Rect, state: &AppState) {
-    let hints: &[&str] = match (state.focus, state.view) {
-        (Pane::Map, _) => &copy::MAP_HINTS,
-        (Pane::Tree, View::Tree) => &copy::TREE_HINTS,
-        (Pane::Tree, _) => &copy::LIST_HINTS,
-    };
-    let line = fit_hints(hints, area.width as usize);
-    frame.render_widget(Paragraph::new(line), area);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hints_drop_from_the_right_and_keep_help() {
-        let full = fit_hints(&copy::TREE_HINTS, 200);
-        assert!(full.starts_with(" ↑↓ move") && full.ends_with("? help"));
-        let narrow = fit_hints(&copy::TREE_HINTS, 30);
-        assert!(format::width(&narrow) <= 30 && narrow.ends_with("? help"));
-        assert!(narrow.contains("↑↓ move"));
-        assert!(!narrow.contains("x skip"));
-        assert!(fit_hints(&copy::TREE_HINTS, 3).ends_with("? help"));
-    }
 }

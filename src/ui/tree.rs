@@ -70,7 +70,7 @@ fn state_glyph(state: &AppState, id: NodeId) -> &'static str {
 
 fn suffix(state: &AppState, id: NodeId) -> String {
     if state.model.flags(id).contains(Flags::DELETING) {
-        return " (deleting…)".to_owned();
+        return format!(" ({})", super::ascii::text(&state.glyphs, "deleting…"));
     }
     let Some(issue) = state.model.issue(id) else {
         return String::new();

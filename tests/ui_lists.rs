@@ -599,17 +599,3 @@ fn without_colours_the_types_view_has_no_swatch_but_keeps_the_tag() {
     let row: String = (0..80).map(|x| buf[(x, y)].symbol().to_owned()).collect();
     assert!(row.contains("[V]"), "{row}");
 }
-
-#[test]
-fn the_help_text_for_map_colours_is_a_copy_constant() {
-    assert!(
-        ui::copy::HELP_MAP_COLOURS
-            .0
-            .contains("files are coloured by type")
-    );
-    assert!(
-        ui::copy::HELP_MAP_COLOURS
-            .1
-            .contains("never one used by a file type in the same view")
-    );
-}

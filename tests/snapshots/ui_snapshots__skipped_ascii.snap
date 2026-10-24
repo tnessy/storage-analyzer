@@ -1,0 +1,28 @@
+---
+source: tests/ui_snapshots.rs
+expression: "screen(&mut s, 80, 24)"
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ 1 Tree  2 Types  3 Largest  [4 Skipped] !2
+  PATH (REASON)
+> /synthetic/root/Downloads  (permission denied)
+  /synthetic/root/.local  (skipped by you)
+
+
+
+
+
+
+
+
+ Map: /synthetic/root ----------------------------------------------------------
++Videos/ 38.1M 65%---------------------------------++Projects/ 19.1M 33%-----+++
+|                                                  ||                        |||
+|                                                  ||                        |||
+|                                                  ||                        |||
+|                                                  ||                        |||
+|                                                  ||                        |++
+|                                                  ||                        |++
++--------------------------------------------------++------------------------+++
+Done in 00:00 - 4 files - 58.5 MiB - 2 skipped (press 4)
+ j/k move  Enter show in tree  d delete  ? help

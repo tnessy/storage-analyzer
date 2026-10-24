@@ -7,7 +7,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
 
 use super::theme::Glyphs;
-use super::{copy, format, sanitize};
+use super::{ascii, copy, format, sanitize};
 use crate::app::state::AppState;
 use crate::eta::{EtaSource, EtaView};
 use crate::types::{ScanState, SizeMode};
@@ -87,6 +87,15 @@ fn scanning_text(state: &AppState, width: usize) -> String {
     }
 }
 
+/// A leading symbol and its space; nothing at all when the glyph set has none (ASCII).
+fn lead(glyph: &str) -> String {
+    if glyph.is_empty() {
+        String::new()
+    } else {
+        format!("{glyph} ")
+    }
+}
+
 pub fn text(state: &AppState, width: usize) -> String {
     if let Some(t) = &state.transient {
         return t.text.clone();
@@ -103,8 +112,8 @@ pub fn text(state: &AppState, width: usize) -> String {
                 crate::types::SizeMode::Apparent => t.apparent_bytes,
             };
             let mut line = format!(
-                "{} Done in {elapsed} {sep} {} files {sep} {}",
-                g.done,
+                "{}Done in {elapsed} {sep} {} files {sep} {}",
+                lead(g.done),
                 format::thousands(t.files),
                 format::size_iec_long(bytes)
             );
@@ -116,8 +125,8 @@ pub fn text(state: &AppState, width: usize) -> String {
         }
         ScanState::Stopped => {
             format!(
-                "{} Stopped at {elapsed} {sep} {}",
-                g.stopped,
+                "{}Stopped at {elapsed} {sep} {}",
+                lead(g.stopped),
                 copy::STOPPED_TAIL
             )
         }
@@ -126,7 +135,10 @@ pub fn text(state: &AppState, width: usize) -> String {
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let line = format::truncate(
-        &sanitize::sanitize(&text(state, usize::from(area.width))),
+        &sanitize::sanitize(&ascii::text(
+            &state.glyphs,
+            &text(state, usize::from(area.width)),
+        )),
         area.width as usize,
         state.glyphs.ellipsis,
     );

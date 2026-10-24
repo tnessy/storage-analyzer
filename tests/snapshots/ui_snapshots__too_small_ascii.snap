@@ -1,0 +1,5 @@
+---
+source: tests/ui_snapshots.rs
+expression: "screen(&mut small, 79, 24)"
+---
+Terminal too small: need 80x24, have 79x24. Resize, or press q to quit.

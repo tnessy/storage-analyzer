@@ -6,7 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
 use super::tile_colors::Fill;
-use super::{copy, format, sanitize};
+use super::{ascii, copy, format, sanitize};
 use crate::app::map_state::Pane;
 use crate::app::state::AppState;
 use crate::layout::Tile;
@@ -179,7 +179,10 @@ fn empty_state(state: &AppState) -> Option<Empty> {
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(Clear, area);
     match empty_state(state) {
-        Some(Empty::Waiting) => frame.render_widget(Paragraph::new(copy::MAP_WAITING), area),
+        Some(Empty::Waiting) => frame.render_widget(
+            Paragraph::new(ascii::text(&state.glyphs, copy::MAP_WAITING)),
+            area,
+        ),
         Some(Empty::Folder) => frame.render_widget(Paragraph::new(copy::MAP_EMPTY_FOLDER), area),
         Some(Empty::AllZero(n)) => {
             let text = format!("{n} {}", copy::MAP_ALL_ZERO);
@@ -289,7 +292,7 @@ pub fn title_text(state: &AppState, width: usize) -> String {
             let p = step
                 .3
                 .map_or(p.clone(), |m| format::truncate_left(p, m, g.ellipsis));
-            format!(" {} {} {p}", g.separator, copy::MAP_UP_HINT)
+            format!(" {} {} {p}", g.separator, ascii::text(g, copy::MAP_UP_HINT))
         });
         let shown = step.0.map_or(path.clone(), |m| {
             format::truncate_left(&path, m, g.ellipsis)

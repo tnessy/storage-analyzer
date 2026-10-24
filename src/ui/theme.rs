@@ -8,6 +8,8 @@ use crate::model::Category;
 
 #[derive(Clone, Debug)]
 pub struct Glyphs {
+    /// The ASCII fallback is active (non-UTF-8 locale): the renderer also folds leftover symbols.
+    pub ascii: bool,
     pub scanning: &'static str,
     /// Frames of the activity spinner shown in place of `scanning` (unless animation is off).
     pub spinner: [&'static str; 4],
@@ -39,8 +41,50 @@ pub struct Glyphs {
 }
 
 impl Glyphs {
+    /// UX §7 ASCII fallback. Box-drawing and arrow characters in copy text are folded by
+    /// `ascii::fold` after drawing.
+    pub fn ascii() -> Self {
+        Self {
+            ascii: true,
+            scanning: "~",
+            spinner: ["|", "/", "-", "\\"],
+            prioritised: "^",
+            skipped: "-",
+            lower_bound: ">=",
+            expanded: "-",
+            collapsed: "+",
+            done: "",
+            stopped: "",
+            ellipsis: "...",
+            separator: "-",
+            breadcrumb: ">",
+            rule: "-",
+            guide_tee: "+",
+            guide_elbow: "+",
+            guide_pipe: "|",
+            bar_full: "#",
+            bar_empty: ".",
+            bar_eighths: [" ", ".", ".", ".", "#", "#", "#", "#"],
+            ..Self::unicode()
+        }
+    }
+
+    /// Unicode unless the locale says otherwise: the first non-empty of `LC_ALL`, `LC_CTYPE` and
+    /// `LANG` must name UTF-8.
+    pub fn detect(get: &dyn Fn(&str) -> Option<String>) -> Self {
+        let utf8 = ["LC_ALL", "LC_CTYPE", "LANG"]
+            .iter()
+            .find_map(|name| get(name).filter(|v| !v.is_empty()))
+            .is_some_and(|v| {
+                let v = v.to_ascii_lowercase();
+                v.contains("utf-8") || v.contains("utf8")
+            });
+        if utf8 { Self::unicode() } else { Self::ascii() }
+    }
+
     pub fn unicode() -> Self {
         Self {
+            ascii: false,
             scanning: "◌",
             spinner: ["◜", "◝", "◞", "◟"],
             prioritised: "▲",
@@ -106,6 +150,23 @@ pub enum ColorDepth {
     Mono,
 }
 
+impl ColorDepth {
+    /// `NO_COLOR` (non-empty) wins; then `COLORTERM`; then `TERM`.
+    pub fn detect(get: &dyn Fn(&str) -> Option<String>) -> Self {
+        if get("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+            return ColorDepth::Mono;
+        }
+        let colorterm = get("COLORTERM").unwrap_or_default().to_ascii_lowercase();
+        if colorterm == "truecolor" || colorterm == "24bit" {
+            return ColorDepth::TrueColor;
+        }
+        match get("TERM").as_deref() {
+            None | Some("") | Some("dumb") => ColorDepth::Mono,
+            Some(_) => ColorDepth::Indexed256,
+        }
+    }
+}
+
 /// Fill and label colors of one palette hue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Swatch {
@@ -115,6 +176,9 @@ pub struct Swatch {
 
 const BLACK: Color = Color::Rgb(0, 0, 0);
 const WHITE: Color = Color::Rgb(255, 255, 255);
+/// Entries 16 and 231 of the xterm-256 cube are pure black and pure white.
+const INDEXED_BLACK: Color = Color::Indexed(16);
+const INDEXED_WHITE: Color = Color::Indexed(231);
 
 /// Truecolor RGB, xterm-256 index, and whether the label is white (UX §7).
 type PaletteEntry = (Hue, (u8, u8, u8), u8, bool);
@@ -134,14 +198,16 @@ impl Theme {
     /// `None` when the theme draws no fills.
     pub fn swatch(&self, hue: Hue) -> Option<Swatch> {
         let &(_, (r, g, b), index, white) = PALETTE.iter().find(|(h, ..)| *h == hue)?;
-        let fill = match self.depth {
-            ColorDepth::TrueColor => Color::Rgb(r, g, b),
-            ColorDepth::Indexed256 => Color::Indexed(index),
+        // Labels are plain black or white in every mode; with 256 colours they are indexed too,
+        // so no 24-bit colour is ever sent to a terminal that may not understand it.
+        let (fill, black, white_label) = match self.depth {
+            ColorDepth::TrueColor => (Color::Rgb(r, g, b), BLACK, WHITE),
+            ColorDepth::Indexed256 => (Color::Indexed(index), INDEXED_BLACK, INDEXED_WHITE),
             ColorDepth::Mono => return None,
         };
         Some(Swatch {
             fill,
-            label: if white { WHITE } else { BLACK },
+            label: if white { white_label } else { black },
         })
     }
 
