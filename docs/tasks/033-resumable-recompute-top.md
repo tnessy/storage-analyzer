@@ -1,4 +1,4 @@
-> **Superseded:** folded into **T030 Part 4** (user-approved, 2026-10-23). Do not work from this file.
+> **Superseded:** folded into **T030 Part 4**, which is **on hold** pending the user's scope decision. Do not work from this file.
 
 # T033: Resumable `recompute_top` after a delete (no ~0.5 s freeze)
 
