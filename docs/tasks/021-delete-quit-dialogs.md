@@ -138,3 +138,10 @@ T025 intercepts `d`/`p`/`x`/`r` on the `..` row in `keymap.rs` (message `"." is 
   - the transient after dismissal;
   - help still fits at 80×24 with `v` listed;
   - the Skipped view gains nothing from a `Partial`.
+- **Precisions from UX §5.3 (final):**
+  - groups are **largest first**, and paths within a group are sorted by byte order;
+  - scrolling also takes `g/G`;
+  - the overlay closes with `Esc` **or `v`** and returns to where it was opened (the result dialog or the main screen);
+  - only `Partial` has a list (`Not deleted` has none).
+- **Help line folded into this task** (rather than a separate follow-up): add `v  Last delete's failures` in the spare right-column slot, exactly as in the UX §6 mockup. The help stays 20 rows. Update the check 19(c) test to count **19** entries, and regenerate the help snapshots.
+- **Acceptance check 20** (UX §11) is part of this task's tests.
