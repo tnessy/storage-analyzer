@@ -327,6 +327,7 @@ pub fn m8_tree(base: Option<&Path>) -> M8Tree {
         fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
         root.join("locked")
     });
+    sync_fs(&root);
     M8Tree {
         root,
         locked,

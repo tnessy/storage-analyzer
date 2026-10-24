@@ -631,7 +631,6 @@ mod updating {
             (0..20).map(|i| file(&format!("c{i:02}"), 10 + i)).collect(),
         );
         let mut state = app_state(scan);
-        state.model.set_incremental_top(true);
         if glyphs_ascii {
             state.glyphs = storage_analyzer::ui::theme::Glyphs::ascii();
         }
@@ -763,7 +762,6 @@ mod updating {
         );
         let mut state = app_state(scan);
         state.model.apply(ScanMsg::Done { cancelled: false });
-        state.model.set_incremental_top(true);
         press(&mut state, &[KeyCode::Char('3')]);
         draw(&mut state, 80, 24);
         delete(&mut state, kids[0]);
@@ -791,7 +789,6 @@ mod updating {
             (0..20).map(|i| file(&format!("z{i:02}"), 10 + i)).collect(),
         );
         let mut state = app_state(scan);
-        state.model.set_incremental_top(true);
         press(&mut state, &[KeyCode::Char('3')]);
         draw(&mut state, 100, 30);
         (state, kids[1])

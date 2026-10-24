@@ -427,7 +427,6 @@ fn a_stepped_rebuild_gives_the_same_lists_in_bounded_steps() {
 #[test]
 fn nodes_removed_during_a_rebuild_never_show_up() {
     let mut m = big_model(20_000);
-    m.set_incremental_top(true);
     m.start_top_rebuild();
     assert!(!m.step_top_rebuild(Duration::ZERO));
     let biggest = m.top_files(D)[0];
@@ -464,42 +463,31 @@ fn a_file_listed_while_a_rebuild_runs_makes_the_new_lists() {
 }
 
 #[test]
-fn deletes_and_rescans_rebuild_in_steps_only_when_asked() {
-    let build = || {
-        let mut m = model(10);
-        m.apply(listing(0, 1, vec![dir("a"), dir("b")]));
-        m.apply(listing(
-            1,
-            3,
-            (0..100)
-                .map(|i| file(&format!("f{i}"), 4096 * (i + 1), 1))
-                .collect(),
-        ));
-        m.apply(listing(
-            2,
-            103,
-            (0..100)
-                .map(|i| file(&format!("g{i}"), 4096 * (i + 2), 1))
-                .collect(),
-        ));
-        m
-    };
-    let mut blocking = build();
-    blocking.begin_rescan(NodeId(1));
+fn a_rescan_that_empties_the_lists_rebuilds_them_in_steps() {
+    let mut m = model(10);
+    m.apply(listing(0, 1, vec![dir("a"), dir("b")]));
+    // a holds every file the lists keep (10 + a reserve of 40).
+    m.apply(listing(
+        1,
+        3,
+        (0..100)
+            .map(|i| file(&format!("f{i}"), 4096 * (1000 + i), 1))
+            .collect(),
+    ));
+    m.apply(listing(
+        2,
+        103,
+        (0..100)
+            .map(|i| file(&format!("g{i}"), 4096 * (i + 2), 1))
+            .collect(),
+    ));
+    m.begin_rescan(NodeId(1));
+    assert!(m.top_updating(), "the lists lost their reserve");
     assert!(
-        !blocking.top_updating(),
-        "by default the lists are rebuilt at once"
+        m.top_files(D).iter().all(|&n| m.exists(n)),
+        "no removed node is listed meanwhile"
     );
-    assert!(blocking.top_files(D).iter().all(|&n| n.0 >= 103));
-
-    let mut stepped = build();
-    stepped.set_incremental_top(true);
-    stepped.begin_rescan(NodeId(1));
-    assert!(stepped.top_updating());
-    assert!(
-        stepped.top_files(D).iter().all(|&n| stepped.exists(n)),
-        "no removed node is listed"
-    );
-    while !stepped.step_top_rebuild(Duration::from_millis(5)) {}
-    assert_eq!(stepped.top_files(D), blocking.top_files(D));
+    while !m.step_top_rebuild(Duration::from_millis(5)) {}
+    assert_eq!(m.top_files(D).len(), 10);
+    assert!(m.top_files(D).iter().all(|&n| n.0 >= 103));
 }

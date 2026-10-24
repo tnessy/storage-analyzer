@@ -35,9 +35,7 @@ fn dir(name: &str) -> RawEntry {
 }
 
 fn model(top_n: usize) -> Model {
-    let mut m = Model::new(PathBuf::from("/r"), dir("r"), ModelOptions { top_n });
-    m.set_incremental_top(true);
-    m
+    Model::new(PathBuf::from("/r"), dir("r"), ModelOptions { top_n })
 }
 
 fn listing(dir: u32, first_id: u32, entries: Vec<RawEntry>) -> ScanMsg {

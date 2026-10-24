@@ -1,7 +1,7 @@
 //! Spike R2/R4/R8: a headless scan harness (T009).
 //!
 //! `cargo run --release --example scan_harness -- ROOT [--threads N] [--cross-filesystems]
-//!  [--delete-top PATH] [--focus-at-ms T PATH [--watch-only]] [--slow-apply-ms N] [--du]`
+//!  [--malloc-report] [--delete-top PATH] [--focus-at-ms T PATH [--watch-only]] [--slow-apply-ms N] [--du]`
 //! `cargo run --release --example scan_harness -- --bench-rows`    (tree row build, 100 k / 1 M)
 //! `cargo run --release --example scan_harness -- --bench-queue [N]` (queue re-key cost)
 //!
@@ -46,6 +46,8 @@ struct Opts {
     slow_apply_ms: u64,
     walker_only: bool,
     quiet: bool,
+    /// At the end, print glibc's allocator statistics and what `malloc_trim(0)` gives back.
+    malloc_report: bool,
     /// After the scan: delete this top-level folder in the model and time the rebuild.
     delete_top: Option<PathBuf>,
     /// Read the thread's page-fault and context-switch counters every tick (slows the run).
@@ -64,6 +66,43 @@ struct SlowTick {
     os: Option<(u64, u64, u64)>,
 }
 
+/// The cost of removing a folder from the model, then rebuilding the lists in 5 ms steps.
+struct DeleteCost {
+    /// Files and folders inside the removed folder.
+    entries: u64,
+    removal: Duration,
+    rebuild_needed: bool,
+    steps: u32,
+    rebuild_work: Duration,
+    longest_step: Duration,
+}
+
+/// glibc heap numbers (bytes) and RSS (MiB) before and after `malloc_trim(0)`.
+struct MallocReport {
+    arena: usize,
+    in_use: usize,
+    free: usize,
+    mmapped: usize,
+    rss_before: f64,
+    rss_after: f64,
+    trimmed: bool,
+}
+
+/// What the model holds, counted through its public API, and the heap that implies.
+struct Census {
+    nodes: u64,
+    dirs: u64,
+    links_dup: u64,
+    name_bytes: u64,
+    children_elems: u64,
+    /// Estimated heap of the children vectors (capacity rounded up to a power of two,
+    /// at least 4, plus 16 bytes of allocator header).
+    children_heap: u64,
+}
+
+/// Which allocator is installed (the mimalloc example sets this).
+pub static ALLOCATOR: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
 #[derive(Default)]
 struct Report {
     produced: u64,
@@ -77,8 +116,10 @@ struct Report {
     recompute_top: Duration,
     /// Longest single step and number of steps of a rebuild done in 5 ms steps.
     rebuild_steps: (Duration, u32),
-    /// `--delete-top`: (rebuild needed, steps, work time in steps, longest step).
-    delete_rebuild: Option<(bool, u32, Duration, Duration)>,
+    /// `--delete-top`: what was deleted and what it cost.
+    delete_rebuild: Option<DeleteCost>,
+    malloc: Option<MallocReport>,
+    census: Option<Census>,
     category_batches: Vec<Duration>,
     worker_cpu_percent: Option<f64>,
     focus_start_ms: Option<u64>,
@@ -162,6 +203,57 @@ fn thread_counters() -> (u64, u64, u64) {
         f.get(9).copied().unwrap_or(0),
         involuntary,
     )
+}
+
+/// glibc only: other allocators ignore `malloc_trim` and report nothing in `mallinfo2`.
+fn malloc_report() -> MallocReport {
+    let rss_before = rss_mib();
+    // SAFETY: plain libc queries; `malloc_stats` writes to stderr.
+    let (info, trimmed) = unsafe {
+        libc::malloc_stats();
+        let info = libc::mallinfo2();
+        (info, libc::malloc_trim(0) != 0)
+    };
+    MallocReport {
+        arena: info.arena,
+        in_use: info.uordblks + info.hblkhd,
+        free: info.fordblks,
+        mmapped: info.hblkhd,
+        rss_before,
+        rss_after: rss_mib(),
+        trimmed,
+    }
+}
+
+fn census(model: &Model) -> Census {
+    let mut c = Census {
+        nodes: 0,
+        dirs: 0,
+        links_dup: 0,
+        name_bytes: 0,
+        children_elems: 0,
+        children_heap: 0,
+    };
+    for i in 0..=model.totals().entries_seen as u32 {
+        let id = NodeId(i);
+        if !model.exists(id) {
+            continue;
+        }
+        c.nodes += 1;
+        c.name_bytes += model.name(id).len() as u64;
+        c.dirs += u64::from(model.kind(id) == Kind::Dir);
+        c.links_dup += u64::from(
+            model
+                .flags(id)
+                .contains(storage_analyzer::model::Flags::HARDLINK_DUP),
+        );
+        let kids = model.children(id).len() as u64;
+        c.children_elems += kids;
+        if kids > 0 {
+            c.children_heap += kids.next_power_of_two().max(4) * 4 + 16;
+        }
+    }
+    c
 }
 
 fn root_entry(root: &Path) -> RawEntry {
@@ -404,16 +496,16 @@ fn run_scan(opts: &Opts) -> Report {
         if let Some(rel) = &opts.delete_top
             && let Some(id) = find(&model, rel)
         {
-            model.set_incremental_top(true);
             let removed = storage_analyzer::delete::DeleteEvent::Finished(
                 storage_analyzer::delete::Outcome::Removed(Default::default()),
             );
+            let (files, dirs) = model.counts(id);
             if model.begin_delete(id).is_ok() {
                 let started = Instant::now();
                 model.apply_delete(&removed);
                 let applied = started.elapsed();
                 let needed = model.top_updating();
-                let (mut work, mut longest, mut steps) = (applied, applied, 0);
+                let (mut work, mut longest, mut steps) = (Duration::ZERO, Duration::ZERO, 0);
                 while model.top_updating() {
                     let t = Instant::now();
                     model.step_top_rebuild(Duration::from_millis(5));
@@ -422,7 +514,14 @@ fn run_scan(opts: &Opts) -> Report {
                     longest = longest.max(took);
                     steps += 1;
                 }
-                report.delete_rebuild = Some((needed, steps, work, longest));
+                report.delete_rebuild = Some(DeleteCost {
+                    entries: files + dirs,
+                    removal: applied,
+                    rebuild_needed: needed,
+                    steps,
+                    rebuild_work: work,
+                    longest_step: longest,
+                });
             }
         }
         let totals = model.totals();
@@ -437,6 +536,10 @@ fn run_scan(opts: &Opts) -> Report {
             .iter()
             .map(|i| (i.kind, model.path(i.node)))
             .collect();
+        if opts.malloc_report {
+            report.census = Some(census(&model));
+            report.malloc = Some(malloc_report());
+        }
         std::hint::black_box(&model);
     }
     report
@@ -491,18 +594,63 @@ fn print_report(opts: &Opts, r: &Report, walker_rate: Option<f64>) {
         r.rebuild_steps.1,
         ms(r.rebuild_steps.0)
     );
-    if let Some((needed, steps, work, longest)) = r.delete_rebuild {
+    if let Some(d) = &r.delete_rebuild {
         println!(
-            "deleted {}: rebuild needed: {needed}; {steps} steps, {:.0} ms of work, longest step {:.1} ms",
+            "deleted {} ({} entries): removal from the model {:.1} ms in one step; top-N rebuild needed: {}, {} steps, {:.0} ms of work, longest step {:.1} ms",
             opts.delete_top
                 .as_deref()
                 .map_or(String::new(), |p| p.display().to_string()),
-            ms(work),
-            ms(longest)
+            d.entries,
+            ms(d.removal),
+            d.rebuild_needed,
+            d.steps,
+            ms(d.rebuild_work),
+            ms(d.longest_step)
+        );
+        println!(
+            "TARGET: delete_removal_ms={:.1} for {} entries (revisit incremental removal if a real delete exceeds 250)",
+            ms(d.removal),
+            d.entries
         );
         println!(
             "TARGET: delete_top_rebuild_work_ms={:.0} (target about 1500 or less)",
-            ms(work)
+            ms(d.rebuild_work)
+        );
+    }
+    if let Some(c) = &r.census {
+        let mib = |b: u64| b as f64 / (1024.0 * 1024.0);
+        let per_node = 127 * c.nodes;
+        println!(
+            "census: {} nodes, {} dirs, {} duplicate hard links, names {:.0} MiB ({:.1} B each), children elements {:.0} MiB, children vectors about {:.0} MiB",
+            c.nodes,
+            c.dirs,
+            c.links_dup,
+            mib(c.name_bytes),
+            c.name_bytes as f64 / c.nodes as f64,
+            mib(c.children_elems * 4),
+            mib(c.children_heap)
+        );
+        println!(
+            "estimate: per-node arrays {:.0} MiB + names {:.0} + children vectors {:.0} = {:.0} MiB",
+            mib(per_node),
+            mib(c.name_bytes),
+            mib(c.children_heap),
+            mib(per_node + c.name_bytes + c.children_heap)
+        );
+    }
+    if let Some(m) = &r.malloc {
+        let mib = |b: usize| b as f64 / (1024.0 * 1024.0);
+        println!(
+            "allocator {}: heap arena {:.0} MiB, in use {:.0} MiB (of which mmapped {:.0}), free in arenas {:.0} MiB",
+            ALLOCATOR.get().copied().unwrap_or("glibc malloc"),
+            mib(m.arena),
+            mib(m.in_use),
+            mib(m.mmapped),
+            mib(m.free)
+        );
+        println!(
+            "RSS {:.0} MiB; after malloc_trim(0) {:.0} MiB (trim released something: {})",
+            m.rss_before, m.rss_after, m.trimmed
         );
     }
     println!(
@@ -686,7 +834,7 @@ fn bench_queue(n: u32) {
     println!("clearing the focus: {:.1} ms", ms(started.elapsed()));
 }
 
-fn main() {
+pub fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let value = |name: &str| {
         args.iter()
@@ -730,6 +878,7 @@ fn main() {
             .unwrap_or(0),
         walker_only: false,
         quiet: false,
+        malloc_report: args.iter().any(|a| a == "--malloc-report"),
         delete_top: value("--delete-top").map(|p| {
             let p = PathBuf::from(p);
             p.strip_prefix(root).map(Path::to_path_buf).unwrap_or(p)
@@ -791,6 +940,7 @@ mod tests {
                 slow_apply_ms: 0,
                 walker_only: false,
                 quiet: true,
+                malloc_report: false,
                 delete_top: None,
                 diag_ticks: false,
             };
@@ -799,6 +949,31 @@ mod tests {
             assert_eq!(report.produced, expected);
             assert_eq!(report.applied, report.produced);
         }
+    }
+
+    #[test]
+    fn the_malloc_report_is_filled_in_when_asked_for() {
+        let tmp = tempfile::tempdir().unwrap();
+        for f in 0..200 {
+            std::fs::write(tmp.path().join(format!("f{f}")), b"x").unwrap();
+        }
+        let opts = Opts {
+            root: tmp.path().to_path_buf(),
+            threads: 2,
+            cross_filesystems: false,
+            focus: None,
+            watch_only: false,
+            slow_apply_ms: 0,
+            walker_only: false,
+            quiet: true,
+            malloc_report: true,
+            delete_top: None,
+            diag_ticks: false,
+        };
+        let report = run_scan(&opts);
+        let m = report.malloc.expect("a malloc report");
+        assert!(m.in_use > 0 && m.arena > 0);
+        assert!(m.rss_before > 0.0 && m.rss_after > 0.0);
     }
 
     #[test]
@@ -816,6 +991,7 @@ mod tests {
             slow_apply_ms: 0,
             walker_only: true,
             quiet: true,
+            malloc_report: false,
             delete_top: None,
             diag_ticks: false,
         };

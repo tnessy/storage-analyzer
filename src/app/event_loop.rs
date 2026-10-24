@@ -256,8 +256,6 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             self.state.delete_handle = Some(handle);
             self.delete_rx = Some(rx);
         }
-        // A big delete or rescan rebuilds the top-N lists in short steps, not in one long stall.
-        self.state.model.set_incremental_top(true);
         self.start_eta_sources();
         Ok(())
     }

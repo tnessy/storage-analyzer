@@ -161,7 +161,6 @@ pub struct Model {
     rescan_roots: HashSet<NodeId>,
     /// The folder a delete is running on.
     delete_target: Option<NodeId>,
-    incremental_top: bool,
 }
 
 /// Sums of one listing, applied to the directory and its ancestors in a single walk.
@@ -218,7 +217,6 @@ impl Model {
             focus: None,
             rescan_roots: HashSet::new(),
             delete_target: None,
-            incremental_top: false,
         }
     }
 
@@ -688,23 +686,13 @@ impl Model {
         self.indexes.epoch()
     }
 
-    /// After a delete or rescan, rebuild the top-N lists in steps (the app calls
-    /// `step_top_rebuild` every loop iteration) instead of all at once. Off by default.
-    pub fn set_incremental_top(&mut self, on: bool) {
-        self.incremental_top = on;
-    }
-
     /// Called after nodes were removed or changed: if a list can no longer show its top
-    /// `n`, start the stepped rebuild (or redo the lists at once).
+    /// `n`, start the stepped rebuild (the app calls `step_top_rebuild` every loop iteration).
     pub(super) fn refresh_top(&mut self) {
         if self.top_updating() || !self.indexes.top_needs_rebuild() {
             return;
         }
-        if self.incremental_top {
-            self.start_top_rebuild();
-        } else {
-            self.recompute_top();
-        }
+        self.start_top_rebuild();
     }
 
     /// Not a duplicate hard link, an unreadable entry or another filesystem.
