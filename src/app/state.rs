@@ -29,6 +29,8 @@ pub const TRANSIENT_TTL: Duration = Duration::from_secs(5);
 pub(super) const RATE_TAU: Duration = Duration::from_secs(5);
 /// One spinner frame lasts this long, so it never moves faster than 10 fps (UX §7).
 const SPINNER_FRAME_MS: u128 = 100;
+/// A pending top-N rebuild shows `updating…` only after this long (UX §5.5).
+const LARGEST_UPDATING_DELAY: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dialog {
@@ -120,6 +122,10 @@ pub struct AppState {
     /// Set when the user quit with `y` during a delete: the line for stderr, once known.
     /// The panic message of the delete executor, for the result dialog.
     pub delete_panic: Option<String>,
+    /// A finished delete whose removal from the model waits for the next loop step.
+    pub pending_delete: Option<crate::delete::DeleteEvent>,
+    /// When the pending top-N rebuild was first seen (for the 200 ms delay of `updating…`).
+    pub top_pending_since: Option<Duration>,
     /// Whether the scan in progress (or last finished) is the root's own, or a subtree rescan.
     pub scan_kind: ScanKind,
     /// Elapsed time when `s` was pressed; the status shows it frozen while stopping.
@@ -174,6 +180,8 @@ impl AppState {
             last_delete_failures: Vec::new(),
             last_delete_path: std::path::PathBuf::new(),
             delete_panic: None,
+            pending_delete: None,
+            top_pending_since: None,
             scan_kind: ScanKind::Root,
             stop_elapsed: None,
             queued_rescans: Vec::new(),
@@ -295,6 +303,11 @@ impl AppState {
     /// Returns whether anything visible changed.
     pub fn tick(&mut self, now: Duration) -> bool {
         self.now = now;
+        if self.model.top_updating() {
+            self.top_pending_since.get_or_insert(now);
+        } else {
+            self.top_pending_since = None;
+        }
         if self.is_scanning() {
             self.rate
                 .sample(now.saturating_sub(self.started_at), self.scan_entries());
@@ -419,12 +432,29 @@ impl AppState {
         }
     }
 
+    /// The Largest header shows `updating…`: a rebuild has been pending for 200 ms, or at once
+    /// when no row is left to show (a blank body would look broken).
+    pub fn largest_updating(&self) -> bool {
+        let Some(since) = self.top_pending_since else {
+            return false;
+        };
+        self.model.top_updating()
+            && (self.lists.largest().is_empty()
+                || self.now.saturating_sub(since) >= LARGEST_UPDATING_DELAY)
+    }
+
     fn list_key(&mut self, action: Action) {
         let height = self.list_height;
         if action == Action::Enter {
-            if let Some(id) = self.lists.selected_node(self.view) {
-                self.view = View::Tree;
-                self.tree.reveal(&self.model, id, &mut self.events);
+            match self.lists.selected_node(self.view) {
+                Some(id) => {
+                    self.view = View::Tree;
+                    self.tree.reveal(&self.model, id, &mut self.events);
+                }
+                None if self.view == View::Largest => {
+                    self.say(crate::ui::copy::NOTHING_TO_DELETE);
+                }
+                None => {}
             }
             return;
         }

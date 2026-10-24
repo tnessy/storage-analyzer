@@ -96,6 +96,8 @@ struct Script {
     feed: Rc<RefCell<Option<Feed>>>,
     /// Blocking waits advance the clock unless a test drives time itself.
     auto_advance: Rc<Cell<bool>>,
+    /// The `timeout` of every wait for input, in order.
+    waits: Rc<RefCell<Vec<Duration>>>,
 }
 
 impl Script {
@@ -105,6 +107,7 @@ impl Script {
             queue: Rc::default(),
             feed: Rc::default(),
             auto_advance: Rc::new(Cell::new(true)),
+            waits: Rc::default(),
         }
     }
 
@@ -119,6 +122,7 @@ impl Script {
 
 impl EventSource for Script {
     fn next(&mut self, timeout: Duration) -> io::Result<Option<Event>> {
+        self.waits.borrow_mut().push(timeout);
         let now = self.clock.now();
         let mut queue = self.queue.borrow_mut();
         if let Some(&(at, _)) = queue.front()
@@ -792,4 +796,69 @@ fn quitting_during_a_real_scan_with_a_full_channel_returns_promptly() {
     assert_eq!(app.step().unwrap(), Flow::Quit);
     app.finish();
     assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+}
+
+#[test]
+fn a_pending_top_rebuild_is_stepped_by_the_loop_and_input_never_waits_more_than_10_ms() {
+    use storage_analyzer::delete::{DeleteEvent, Outcome};
+    use storage_analyzer::types::{Counts, Kind, SizeMode};
+
+    let mut rig = rig(idle_starter());
+    rig.app.start().unwrap();
+    let state = rig.app.state_mut();
+    let file = |name: String, bytes| synthetic::entry(&name, Kind::File, bytes);
+    state.model.apply(synthetic::listing(
+        NodeId::ROOT,
+        1,
+        vec![
+            synthetic::entry("a", Kind::Dir, 4096),
+            synthetic::entry("b", Kind::Dir, 4096),
+        ],
+    ));
+    let a_files: Vec<_> = (0..600)
+        .map(|i| file(format!("a{i}"), 1_000_000 + i))
+        .collect();
+    state
+        .model
+        .apply(synthetic::listing(NodeId(1), 10, a_files));
+    let b_files: Vec<_> = (0..5).map(|i| file(format!("b{i}"), 100 + i)).collect();
+    state
+        .model
+        .apply(synthetic::listing(NodeId(2), 700, b_files));
+    state.model.begin_delete(NodeId(1)).unwrap();
+    state
+        .model
+        .apply_delete(&DeleteEvent::Finished(Outcome::Removed(Counts::default())));
+    assert!(
+        state.model.top_updating(),
+        "the delete must leave a rebuild pending"
+    );
+
+    rig.script.waits.borrow_mut().clear();
+    rig.app.step().unwrap();
+    let waits = rig.script.waits.borrow().clone();
+    assert!(
+        waits.iter().all(|w| *w <= Duration::from_millis(10)),
+        "waited {waits:?} for input while a rebuild was pending"
+    );
+    // The loop did the stepping itself, and the lists are right afterwards.
+    for _ in 0..50 {
+        if !rig.app.state().model.top_updating() {
+            break;
+        }
+        rig.app.step().unwrap();
+    }
+    let model = &rig.app.state().model;
+    assert!(!model.top_updating());
+    assert_eq!(model.top_files(SizeMode::Disk).len(), 5);
+    // With nothing pending the loop is back to its idle wait.
+    rig.script.waits.borrow_mut().clear();
+    rig.app.step().unwrap();
+    assert!(
+        rig.script
+            .waits
+            .borrow()
+            .iter()
+            .any(|w| *w > Duration::from_millis(10))
+    );
 }

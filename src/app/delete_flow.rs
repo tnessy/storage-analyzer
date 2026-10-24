@@ -86,7 +86,11 @@ impl AppState {
     /// The row `d` acts on. A group row says what it is and returns `None`.
     fn delete_target(&mut self) -> Option<NodeId> {
         if self.view == View::Largest && self.focus == Pane::Tree {
-            return self.lists.selected_node(View::Largest);
+            let selected = self.lists.selected_node(View::Largest);
+            if selected.is_none() {
+                self.say(copy::NOTHING_TO_DELETE);
+            }
+            return selected;
         }
         if self.tree.aggregate.is_some() || self.map.on_aggregate {
             let count = self.group_size();
@@ -269,16 +273,27 @@ impl AppState {
                 }
             }
             DeleteEvent::Finished(outcome) => {
+                // Show the outcome first; removing a big subtree from the model takes a while,
+                // so it waits for the next loop step. Until then the model still marks the
+                // target as being deleted, so `d` keeps getting the one-at-a-time refusal.
                 let run = self.delete_run.take();
-                let reconcile = self.model.apply_delete(&event);
-                if self.priority.is_some_and(|p| !self.model.exists(p)) {
-                    self.clear_priority();
-                }
                 self.show_outcome(run, outcome);
-                if let Reconcile::Rescan(id) = reconcile {
-                    self.rescan(id);
-                }
+                self.pending_delete = Some(event);
             }
+        }
+    }
+
+    /// Applies the finished delete to the model (called at the start of the next loop step).
+    pub fn apply_pending_delete(&mut self) {
+        let Some(event) = self.pending_delete.take() else {
+            return;
+        };
+        let reconcile = self.model.apply_delete(&event);
+        if self.priority.is_some_and(|p| !self.model.exists(p)) {
+            self.clear_priority();
+        }
+        if let Reconcile::Rescan(id) = reconcile {
+            self.rescan(id);
         }
     }
 

@@ -169,6 +169,8 @@ pub struct App<B: Backend, E: EventSource, C: Clock> {
     last_spinner_frame: usize,
     /// Events from the delete executor.
     delete_rx: Option<Receiver<crate::delete::DeleteEvent>>,
+    /// A frame must be drawn now, ignoring the data-redraw cap (a delete outcome).
+    force_draw: bool,
 }
 
 fn io_err<T: std::error::Error>(e: T) -> io::Error {
@@ -205,6 +207,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             history_rx: None,
             last_spinner_frame: 0,
             delete_rx: None,
+            force_draw: false,
         }
     }
 
@@ -253,6 +256,8 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             self.state.delete_handle = Some(handle);
             self.delete_rx = Some(rx);
         }
+        // A big delete or rescan rebuilds the top-N lists in short steps, not in one long stall.
+        self.state.model.set_incremental_top(true);
         self.start_eta_sources();
         Ok(())
     }
@@ -291,8 +296,10 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             if let Some(panic) = self.take_delete_panic() {
                 self.state.delete_panic = Some(panic);
             }
+            let finished = matches!(event, crate::delete::DeleteEvent::Finished(_));
             self.state.on_delete_event(event);
             self.needs_draw = true;
+            self.force_draw |= finished;
         }
         if self.state.refresh_delete_prompt() {
             self.needs_draw = true;
@@ -377,6 +384,11 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
     where
         B::Error: 'static,
     {
+        // The previous step drew the outcome of a finished delete; now the model catches up.
+        if self.state.pending_delete.is_some() {
+            self.state.apply_pending_delete();
+            self.needs_draw = true;
+        }
         let timeout = self.next_timeout();
         let mut redraw = false;
         let mut handled = 0;
@@ -397,6 +409,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             self.needs_draw = true;
         }
         self.check_scan_health();
+        self.step_top_rebuild();
         let now = self.clock.now();
         if self.state.tick(now) {
             self.needs_draw = true;
@@ -416,7 +429,8 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         let due = self
             .last_draw
             .is_none_or(|t| now.saturating_sub(t) >= DATA_REDRAW_INTERVAL);
-        if redraw || (self.needs_draw && due) {
+        if redraw || self.force_draw || (self.needs_draw && due) {
+            self.force_draw = false;
             self.draw(now, redraw)?;
         }
         Ok(Flow::Continue)
@@ -459,6 +473,18 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         self.needs_draw = true;
     }
 
+    /// Does a slice of the pending top-N rebuild after the scan messages, so input never waits
+    /// behind it. The Largest view needs redraws while it is pending and when it ends.
+    fn step_top_rebuild(&mut self) {
+        let pending = self.state.model.top_updating();
+        if pending {
+            self.state.model.step_top_rebuild(TOP_REBUILD_SLICE);
+        }
+        if pending || self.state.top_pending_since.is_some() {
+            self.needs_draw = true;
+        }
+    }
+
     fn drain_scan(&mut self) -> u64 {
         let start = Instant::now();
         let mut applied = 0;
@@ -491,6 +517,9 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         }
         let now = self.clock.now();
         let mut timeout = IDLE_TIMEOUT;
+        if self.state.model.top_updating() {
+            timeout = timeout.min(TOP_REBUILD_POLL);
+        }
         if let (true, Some(last)) = (self.needs_draw, self.last_draw) {
             timeout = timeout.min((last + DATA_REDRAW_INTERVAL).saturating_sub(now));
         }
@@ -524,6 +553,10 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
     }
 }
 
+/// Work per loop iteration on a pending top-N rebuild.
+const TOP_REBUILD_SLICE: Duration = Duration::from_millis(5);
+/// While a rebuild is pending, input is polled at least this often.
+const TOP_REBUILD_POLL: Duration = Duration::from_millis(10);
 /// How long quitting waits for the executor to finish its current entry.
 const DELETE_STOP_WAIT: Duration = Duration::from_secs(2);
 /// The name of the delete executor's thread.

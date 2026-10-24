@@ -599,3 +599,243 @@ fn without_colours_the_types_view_has_no_swatch_but_keeps_the_tag() {
     let row: String = (0..80).map(|x| buf[(x, y)].symbol().to_owned()).collect();
     assert!(row.contains("[V]"), "{row}");
 }
+
+// ---- Largest `updating…` (UX §5.5, check 22) ----
+
+mod updating {
+    use std::time::Duration;
+
+    use storage_analyzer::delete::{DeleteEvent, Outcome};
+    use storage_analyzer::types::Counts;
+
+    use super::*;
+
+    fn at(ms: u64) -> Duration {
+        Duration::from_millis(ms)
+    }
+
+    /// Folder `a` has `a_files` big files, `b` has 2 middling ones and `c` has 20 tiny ones; the
+    /// lists keep the top 3 plus a reserve, so deleting `a` forces a stepped rebuild.
+    fn scene(a_files: u64, glyphs_ascii: bool) -> (AppState, NodeId) {
+        let mut scan = Scan::with_top(3);
+        let kids = scan.list(ROOT, vec![folder("a"), folder("b"), folder("c")]);
+        scan.list(
+            kids[0],
+            (0..a_files)
+                .map(|i| file(&format!("a{i:02}"), 100_000 + i * 1000))
+                .collect(),
+        );
+        scan.list(kids[1], vec![file("b1", 5_000), file("b2", 4_000)]);
+        scan.list(
+            kids[2],
+            (0..20).map(|i| file(&format!("c{i:02}"), 10 + i)).collect(),
+        );
+        let mut state = app_state(scan);
+        state.model.set_incremental_top(true);
+        if glyphs_ascii {
+            state.glyphs = storage_analyzer::ui::theme::Glyphs::ascii();
+        }
+        press(&mut state, &[KeyCode::Char('3')]);
+        draw(&mut state, 100, 30);
+        (state, kids[0])
+    }
+
+    fn delete(state: &mut AppState, id: NodeId) {
+        state.model.begin_delete(id).unwrap();
+        state
+            .model
+            .apply_delete(&DeleteEvent::Finished(Outcome::Removed(Counts::default())));
+    }
+
+    fn finish_rebuild(state: &mut AppState) {
+        while !state.model.step_top_rebuild(Duration::from_millis(5)) {}
+    }
+
+    fn header(state: &mut AppState, w: u16) -> String {
+        let screen = draw(state, w, 24);
+        screen[usize::from(ui::regions(Rect::new(0, 0, w, 24)).column_header.y)].clone()
+    }
+
+    #[test]
+    fn the_text_waits_200_ms_then_shows_right_aligned_and_the_old_list_minus_deleted_stays() {
+        let (mut state, a) = scene(13, false);
+        delete(&mut state, a);
+        assert!(
+            state.model.top_updating(),
+            "the delete must start a rebuild"
+        );
+        state.tick(at(0));
+        state.tick(at(100));
+        let head = header(&mut state, 80);
+        assert!(!head.contains("updating"), "{head:?}");
+        state.tick(at(250));
+        let head = header(&mut state, 80);
+        assert!(head.ends_with("updating… "), "{head:?}");
+        assert!(head.contains("SIZE  PATH"), "{head:?}");
+        assert!(storage_analyzer::ui::format::width(&head) <= 80);
+        // The old list minus the deleted folder: only b's files, no gap, no empty state.
+        let names = largest_names(&mut state);
+        assert_eq!(names, ["b1", "b2"], "{names:?}");
+        // The new list replaces it in one frame and the text goes away.
+        finish_rebuild(&mut state);
+        state.tick(at(300));
+        let head = header(&mut state, 80);
+        assert!(!head.contains("updating"), "{head:?}");
+        assert_eq!(largest_names(&mut state), ["b1", "b2", "c19"]);
+    }
+
+    #[test]
+    fn ascii_spells_it_with_three_dots() {
+        let (mut state, a) = scene(13, true);
+        delete(&mut state, a);
+        state.tick(at(0));
+        state.tick(at(250));
+        let head = header(&mut state, 80);
+        assert!(head.ends_with("updating... "), "{head:?}");
+    }
+
+    #[test]
+    fn a_rebuild_under_200_ms_never_shows_the_text() {
+        let (mut state, a) = scene(13, false);
+        delete(&mut state, a);
+        state.tick(at(0));
+        state.tick(at(150));
+        assert!(!header(&mut state, 80).contains("updating"));
+        finish_rebuild(&mut state);
+        state.tick(at(160));
+        state.tick(at(400));
+        assert!(!header(&mut state, 80).contains("updating"));
+    }
+
+    #[test]
+    fn enter_on_a_row_still_shows_it_in_the_tree_while_updating() {
+        let (mut state, a) = scene(13, false);
+        delete(&mut state, a);
+        state.tick(at(0));
+        state.tick(at(250));
+        draw(&mut state, 100, 30);
+        press(&mut state, &[KeyCode::Enter]);
+        assert_eq!(state.view, View::Tree);
+        assert_eq!(state.model.name(state.tree.selection), b"b1");
+    }
+
+    #[test]
+    fn every_visible_row_deleted_shows_the_text_at_once_and_no_false_empty_state() {
+        let (mut state, a) = scene(40, false);
+        delete(&mut state, a);
+        assert!(state.model.top_updating());
+        state.tick(at(0));
+        state.tick(at(10));
+        let screen = draw(&mut state, 80, 24);
+        let part = view_part(&screen, 80, 24);
+        assert!(part[0].ends_with("updating… "), "{:?}", part[0]);
+        assert!(
+            part[1..].iter().all(|r| r.trim().is_empty()),
+            "no rows and no `No files found.`: {part:?}"
+        );
+        assert_eq!(state.lists.selected_node(View::Largest), None);
+        for key in [KeyCode::Enter, KeyCode::Char('d')] {
+            state.transient = None;
+            press(&mut state, &[key]);
+            assert_eq!(
+                state.transient.as_ref().map(|t| t.text.as_str()),
+                Some("Nothing to delete here."),
+                "{key:?}"
+            );
+            assert!(state.dialog.is_none());
+        }
+        finish_rebuild(&mut state);
+        state.tick(at(20));
+        let part = view_part(&draw(&mut state, 80, 24), 80, 24);
+        assert!(!part[0].contains("updating"), "{:?}", part[0]);
+        assert!(part[1].contains("b1"), "{part:?}");
+    }
+
+    #[test]
+    fn a_list_that_really_is_empty_says_so_when_the_rebuild_ends() {
+        let mut scan = Scan::with_top(3);
+        let kids = scan.list(ROOT, vec![folder("a")]);
+        scan.list(
+            kids[0],
+            (0..40)
+                .map(|i| file(&format!("a{i:02}"), 1000 + i))
+                .collect(),
+        );
+        let mut state = app_state(scan);
+        state.model.apply(ScanMsg::Done { cancelled: false });
+        state.model.set_incremental_top(true);
+        press(&mut state, &[KeyCode::Char('3')]);
+        draw(&mut state, 80, 24);
+        delete(&mut state, kids[0]);
+        state.tick(at(0));
+        let part = view_part(&draw(&mut state, 80, 24), 80, 24);
+        assert!(!part.join("\n").contains("No files found."), "{part:?}");
+        finish_rebuild(&mut state);
+        state.tick(at(10));
+        let part = view_part(&draw(&mut state, 80, 24), 80, 24);
+        assert!(part.join("\n").contains("No files found."), "{part:?}");
+        assert!(!part[0].contains("updating"), "{:?}", part[0]);
+    }
+
+    /// `y` holds the top file and 14 more; `x` holds two files; `z` is tiny. Deleting `y`
+    /// leaves `x`'s files in a pending rebuild.
+    fn selection_scene() -> (AppState, NodeId) {
+        let mut scan = Scan::with_top(3);
+        let kids = scan.list(ROOT, vec![folder("x"), folder("y"), folder("z")]);
+        scan.list(kids[0], vec![file("x1", 90_000), file("x2", 80_000)]);
+        let mut y = vec![file("y00", 1_000_000)];
+        y.extend((1..15).map(|i| file(&format!("y{i:02}"), 1_000 + i)));
+        scan.list(kids[1], y);
+        scan.list(
+            kids[2],
+            (0..20).map(|i| file(&format!("z{i:02}"), 10 + i)).collect(),
+        );
+        let mut state = app_state(scan);
+        state.model.set_incremental_top(true);
+        press(&mut state, &[KeyCode::Char('3')]);
+        draw(&mut state, 100, 30);
+        (state, kids[1])
+    }
+
+    fn selected_name(state: &AppState) -> Vec<u8> {
+        let id = state.lists.selected_node(View::Largest).unwrap();
+        state.model.name(id).to_vec()
+    }
+
+    #[test]
+    fn a_surviving_file_stays_selected_when_its_row_moves() {
+        let (mut state, y) = selection_scene();
+        assert_eq!(largest_names(&mut state)[..3], ["y00", "x1", "x2"]);
+        press(&mut state, &[KeyCode::Down, KeyCode::Down]);
+        assert_eq!(selected_name(&state), b"x2");
+        delete(&mut state, y);
+        assert!(state.model.top_updating());
+        state.tick(at(0));
+        draw(&mut state, 100, 30);
+        assert_eq!(selected_name(&state), b"x2");
+        assert_eq!(largest_names(&mut state)[..2], ["x1", "x2"]);
+    }
+
+    #[test]
+    fn a_deleted_selection_takes_the_row_now_in_its_place_or_the_last_one() {
+        let (mut state, y) = selection_scene();
+        delete(&mut state, y);
+        assert!(state.model.top_updating());
+        state.tick(at(0));
+        draw(&mut state, 100, 30);
+        // y00 was row 0: the row now at position 0 is x1.
+        assert_eq!(selected_name(&state), b"x1");
+
+        let (mut state, y) = selection_scene();
+        press(&mut state, &[KeyCode::Char('G')]);
+        let before = largest_names(&mut state).len();
+        let position = state.lists.cursor(View::Largest).unwrap().index();
+        assert_eq!(position, before - 1);
+        delete(&mut state, y);
+        state.tick(at(0));
+        draw(&mut state, 100, 30);
+        let names = largest_names(&mut state);
+        let expected = names[position.min(names.len() - 1)].clone();
+        assert_eq!(selected_name(&state), expected.as_bytes());
+    }
+}

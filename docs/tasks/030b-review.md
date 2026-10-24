@@ -36,3 +36,16 @@ Keep it in one small, obvious place (for example `pending_delete_apply: Option<D
   - Partial/Aborted → the dialog shows first, then the D1 rescan is issued after it.
 
 **Then:** the five commands plus 50-run loops of app_delete and ui_lists. I'll re-verify and commit the snapshot.
+
+## Re-review (2026-10-23): APPROVED, committed (hash-checked snapshot; together with T035)
+- **Fresh evidence** (clean worktree: HEAD plus exactly the T030b and T035 files and the runbook edit; engineer-1's T031 files excluded):
+  - fmt ok, whole-tree clippy clean;
+  - **every target passes, including the examples**; `--ignored` passes;
+  - release build ok;
+  - **60/60 runs each** of app_delete, ui_lists, app_names, app_loop and app_controls.
+- **Mitigation verified in code:**
+  - `Finished` → `show_outcome` first, then `pending_delete = Some(event)`;
+  - the outcome frame is forced out, past the 10 Hz cap;
+  - the next `step()` begins with `apply_pending_delete()` (`apply_delete`, the priority check, `Reconcile::Rescan` through the gated `rescan`) before input;
+  - the target stays tombstoned in the gap, so `d` gets "One delete at a time".
+- **Tests:** four new app_delete tests were red on the old order. Two existing tests were adapted to the extra step.

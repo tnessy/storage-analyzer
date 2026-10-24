@@ -284,7 +284,8 @@ fn exact_dialog_shows_the_numbers_and_only_y_deletes() {
         t.starts_with("Deleted ") && t.contains("freed 24.0 KiB ") && t.contains("(3 files)"),
         "{t}"
     );
-    // The row is gone from the model.
+    // The row leaves the model on the step after the outcome frame.
+    r.step(100);
     assert!(
         r.state()
             .model
@@ -699,6 +700,7 @@ fn a_partial_delete_while_stopping_queues_one_rescan_until_done() {
         })
     };
     st.on_delete_event(partial());
+    st.apply_pending_delete();
     assert_eq!(st.queued_rescans, vec![big]);
     // Repeating the reconcile (the dialog's own `Enter`, redraws) never queues it twice.
     st.rescan(big);
@@ -746,6 +748,99 @@ fn a_mount_point_target_gives_the_not_deleted_dialog() {
     let s = r.screen();
     assert!(s.contains("It's a mount point"), "{s}");
     assert!(r.exists("small/s.bin"));
+}
+
+// ---- the outcome is shown before the (slow) removal from the model ----
+
+/// Steps until the step that handled the executor's `Finished` (the outcome is on screen).
+fn until_outcome(r: &mut Rig) {
+    let started = Instant::now();
+    while r.state().delete_run.is_some() {
+        assert!(started.elapsed() < Duration::from_secs(10), "no outcome");
+        std::thread::sleep(Duration::from_millis(3));
+        r.step(100);
+    }
+}
+
+#[test]
+fn the_outcome_frame_is_drawn_before_the_removal_and_the_totals_follow_on_the_next_frame() {
+    let mut r = rig();
+    r.select("big");
+    r.chars("dy");
+    until_outcome(&mut r);
+    // The frame with the outcome still lists the folder: the removal has not run yet.
+    let screen = r.screen();
+    assert!(screen.contains("Deleted "), "{screen}");
+    assert!(screen.contains("big/"), "{screen}");
+    let big = r.find("big");
+    assert!(r.state().model.exists(big));
+    // The next step removes it and the following frame shows the new totals.
+    r.step(100);
+    assert!(!r.state().model.exists(big));
+    assert!(!r.screen().contains("big/"), "{}", r.screen());
+}
+
+#[test]
+fn a_d_pressed_between_the_outcome_and_the_removal_gets_the_one_at_a_time_refusal() {
+    let mut r = rig();
+    r.select("big");
+    r.chars("dy");
+    until_outcome(&mut r);
+    let small = r.find("small");
+    r.app.state_mut().tree.selection = small;
+    let key = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+    r.app.state_mut().handle_key(key);
+    assert!(r.dialog().is_none());
+    assert!(
+        r.transient().starts_with("One delete at a time. Wait for "),
+        "{}",
+        r.transient()
+    );
+}
+
+#[test]
+fn a_partial_outcome_shows_its_dialog_before_the_rescan_starts() {
+    use storage_analyzer::model::Flags;
+    if rustix::process::geteuid().is_root() {
+        return;
+    }
+    let mut r = rig_in(locked_fixture());
+    r.select("big");
+    r.chars("dy");
+    r.until("result dialog", |r| {
+        matches!(r.dialog(), Some(Dialog::DeleteDone(_)))
+    });
+    let big = r.find("big");
+    assert!(r.screen().contains("Delete finished with errors"));
+    assert!(
+        !r.state().rescan_in_flight,
+        "the rescan waits for the next step"
+    );
+    assert!(r.state().model.flags(big).contains(Flags::DELETING));
+    r.step(100);
+    assert!(!r.state().model.flags(big).contains(Flags::DELETING));
+    r.until("the rescan", |r| !r.state().rescan_in_flight);
+    unlock(&r);
+}
+
+#[test]
+fn an_aborted_outcome_shows_its_dialog_before_the_rescan_starts() {
+    use storage_analyzer::model::Flags;
+    let mut r = rig();
+    r.select("small");
+    r.chars("d");
+    let p = r.dir.path().join("small");
+    std::fs::remove_dir_all(&p).unwrap();
+    std::fs::create_dir(&p).unwrap();
+    r.chars("y");
+    r.until("not deleted", |r| {
+        matches!(r.dialog(), Some(Dialog::DeleteAborted(_)))
+    });
+    let small = r.find("small");
+    assert!(!r.state().rescan_in_flight);
+    assert!(r.state().model.flags(small).contains(Flags::DELETING));
+    r.step(100);
+    assert!(!r.state().model.flags(small).contains(Flags::DELETING));
 }
 
 // ---- check 20: the `v` key without failures ----

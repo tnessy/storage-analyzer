@@ -178,6 +178,7 @@ Run: `cargo test --test write_guard --test scan_du_parity`.
 **Requirement:** permission errors and vanishing files do not crash; skipped paths are reported.
 
 **Automated:** `scan_du_parity::an_unreadable_directory_is_one_issue_and_the_rest_completes`, `scan_robustness::files_that_vanish_between_listing_and_stat_become_vanished_issues`, `scan_robustness::a_scan_beside_a_thread_that_deletes_and_recreates_files_still_finishes`, `scan_walker::errors_are_reported_and_the_scan_still_completes`, `scan_walker::real_fs_refuses_symlinks_and_reports_permissions`, `scan_walker::real_scan_of_a_temp_tree_lists_everything_and_flags_unreadable_dirs`, `app_cli::an_unreadable_directory_is_permission_denied`, `ui_lists::skipped_lists_every_reason_newest_first`, `app_loop::a_scan_worker_panic_shows_an_error_dialog_and_stops_the_scan`, `app_loop::a_panic_on_a_non_scan_thread_does_not_stop_the_scan`
+- Hostile names end to end (real files with ESC, BEL, C1, invalid UTF-8, U+202E in their names; tree, map, Largest, Skipped and the delete confirmation): `app_names::hostile_names_never_reach_the_screen_raw_in_any_view_or_the_delete_confirmation`
 
 Run: `cargo test --test scan_robustness --test scan_du_parity --test scan_walker`.
 
@@ -238,7 +239,7 @@ Run: `cargo test --test app_controls --test scan_walker --test history --test ap
 | 8 | Quit | see M12 |
 | 9 | Zoom, `p`, `r`, stop keys | see M11 |
 | 10 | `x` marks | `app_controls::x_skips_a_folder_and_r_brings_back_the_full_totals`, `ui_tree::markers_follow_the_state_table_and_precedence` |
-| 11 | Label truncation, no raw control bytes | `ui_tree::hostile_names_stay_inside_the_row_and_reach_the_buffer_escaped`, `ui_tree::a_name_with_a_bidi_override_shows_escaped_within_its_width`, `lib::ui::sanitize::tests::controls_become_hex_escapes`, `lib::ui::sanitize::tests::bidi_and_format_controls_become_unicode_escapes`, `app_delete::dialogs::a_bidi_override_in_the_path_is_escaped_in_the_confirmation`, `app_cli::a_path_with_escape_bytes_is_printed_escaped` |
+| 11 | Label truncation, no raw control bytes | `app_names::hostile_names_never_reach_the_screen_raw_in_any_view_or_the_delete_confirmation`, `ui_tree::hostile_names_stay_inside_the_row_and_reach_the_buffer_escaped`, `ui_tree::a_name_with_a_bidi_override_shows_escaped_within_its_width`, `lib::ui::sanitize::tests::controls_become_hex_escapes`, `lib::ui::sanitize::tests::bidi_and_format_controls_become_unicode_escapes`, `app_delete::dialogs::a_bidi_override_in_the_path_is_escaped_in_the_confirmation`, `app_cli::a_path_with_escape_bytes_is_printed_escaped` |
 | 12 | `? help` always in hints | `ui_accessibility::key_hints_always_keep_help_at_80_columns_in_every_context`, `lib::ui::hints::tests::hints_drop_from_the_right_and_keep_help` |
 | 13 | Hidden-items notice | `ui_treemap::tiny_items_without_an_aggregate_tile_show_the_hidden_notice`, `ui_treemap::a_drawn_aggregate_tile_replaces_the_notice`, `ui_treemap::a_hidden_selected_item_leads_the_notice_and_the_fit_order_applies`, `ui_treemap::the_notice_shortens_on_a_narrow_title_rule` |
 | 14 | CLI validation | `app_cli::invalid_option_values_are_usage_errors`, `app_cli::boundary_values_pass_validation`, `app_cli::only_the_first_invalid_flag_is_reported`, `lib::app::cli::tests::invalid_values_name_the_flag_and_value`, `lib::app::cli::tests::usage_error_has_a_second_help_line` |
@@ -249,7 +250,7 @@ Run: `cargo test --test app_controls --test scan_walker --test history --test ap
 | 19 | Hints and help | `ui_accessibility::hint_lines_equal_the_ux_strings_at_80_columns_in_unicode_and_ascii`, `ui_accessibility::ascii_mode_never_uses_single_letters_as_key_names`, `ui_accessibility::the_help_overlay_fits_80_by_24_in_two_columns_in_unicode_and_ascii`, `ui_accessibility::help_keys_esc_and_question_mark_close_q_opens_the_quit_prompt_and_others_are_ignored`, `lib::ui::help::tests::nineteen_entries_fit_the_twenty_row_overlay` |
 | 20 | Delete failures | `app_delete::partial_result_groups_failures_and_v_lists_them`, `app_delete::the_next_delete_replaces_the_failures`, `app_delete::v_without_failures_says_so`, `app_delete::help_lists_the_failure_key` |
 | 21 | Other-filesystem rows | `app_controls::r_p_and_x_on_an_other_filesystem_row_say_so_and_change_nothing`, `app_controls::a_long_other_filesystem_name_is_cut_in_the_middle_and_the_advice_stays_whole` |
-| 22 | Largest `updating…` | **gap, see below** |
+| 22 | Largest `updating…` | `ui_lists::updating::the_text_waits_200_ms_then_shows_right_aligned_and_the_old_list_minus_deleted_stays`, `ui_lists::updating::ascii_spells_it_with_three_dots`, `ui_lists::updating::a_rebuild_under_200_ms_never_shows_the_text`, `ui_lists::updating::enter_on_a_row_still_shows_it_in_the_tree_while_updating`, `ui_lists::updating::every_visible_row_deleted_shows_the_text_at_once_and_no_false_empty_state`, `ui_lists::updating::a_list_that_really_is_empty_says_so_when_the_rebuild_ends`, `ui_lists::updating::a_surviving_file_stays_selected_when_its_row_moves`, `ui_lists::updating::a_deleted_selection_takes_the_row_now_in_its_place_or_the_last_one`, `app_loop::a_pending_top_rebuild_is_stepped_by_the_loop_and_input_never_waits_more_than_10_ms` |
 
 ---
 
@@ -279,10 +280,8 @@ Known limits
 - Delete failures are listed in path order (byte-order sorting and size sorting were considered and left out).
 
 ## Gaps (requirements with no automated test)
-- **UX check 22 (Largest `updating…`):** not built yet; it comes with T030b (event-loop wiring of the resumable top-N rebuild). There is no test and no feature to check manually until then.
 - **NO_COLOR rendering of each dialog:** the dialog snapshots are text only; colour-free rendering is covered for the main screens (`ui_accessibility::without_colour_…`) but not by a separate snapshot per dialog (accepted in the T021 review).
 - **Real-terminal behaviour** (alternate screen entry and exit, resize, terminal colour depth, a terminal that sends a bell) has no automated test: only the manual checks.
-- **Check 11's "ESC in a name" in a real filesystem:** the tests use synthetic names and a real temp tree for the CLI path; no test creates a file whose name contains ESC and scans it end to end. (Names with unusual bytes are covered by `scan_du_parity::awkward_names_and_deep_nesting_survive`.)
 
 ---
 

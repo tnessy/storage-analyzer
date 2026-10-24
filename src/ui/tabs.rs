@@ -41,7 +41,12 @@ pub fn render_column_header(frame: &mut Frame, area: Rect, state: &AppState) {
         View::Skipped => copy::SKIPPED_COLUMNS,
     };
     let mut line = text.to_owned();
-    if state.phase() == ScanState::Stopped {
+    if state.view == View::Largest && state.largest_updating() {
+        // Right-aligned with a 1-cell margin, in the header's own style.
+        let tag = super::ascii::text(&state.glyphs, copy::LARGEST_UPDATING);
+        let room = usize::from(area.width).saturating_sub(format::width(&line) + 1);
+        line.push_str(&format!("{tag:>room$} "));
+    } else if state.phase() == ScanState::Stopped {
         let room = usize::from(area.width).saturating_sub(format::width(&line));
         let tag = copy::PARTIAL;
         line.push_str(&format!("{tag:>room$}"));

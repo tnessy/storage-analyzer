@@ -129,7 +129,7 @@ pub struct ListState {
     types_rows: Vec<TypesRow>,
     types_cursor: Cursor,
     largest: Vec<NodeId>,
-    largest_stamp: Option<(u64, SizeMode)>,
+    largest_stamp: Option<(u64, SizeMode, u64)>,
     largest_cursor: Cursor,
     skipped_len: usize,
     skipped_cursor: Cursor,
@@ -226,10 +226,12 @@ impl ListState {
                 );
             }
             View::Largest => {
-                let stamp = (model.totals().entries_seen, mode);
-                if self.largest_stamp != Some(stamp) {
+                // While a rebuild is pending the list is the old one minus deleted files, which
+                // changes without any new entry, so it is re-read every time (it is short).
+                let stamp = (model.totals().entries_seen, mode, model.top_epoch());
+                if model.top_updating() || self.largest_stamp != Some(stamp) {
                     self.largest = model.top_files(mode);
-                    self.largest_stamp = Some(stamp);
+                    self.largest_stamp = (!model.top_updating()).then_some(stamp);
                 }
                 let list = &self.largest;
                 self.largest_cursor.prepare(

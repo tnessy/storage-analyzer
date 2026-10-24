@@ -76,6 +76,9 @@ pub const SKIPPED_COLUMNS: &str = "  PATH (REASON)";
 pub const PARTIAL: &str = "partial";
 pub const NO_FILES_YET: &str = "No files yet.";
 pub const NO_FILES_FOUND: &str = "No files found.";
+/// Shown on the Largest header while its list is recomputed (ASCII folds the ellipsis).
+pub const LARGEST_UPDATING: &str = "updating…";
+pub const NOTHING_TO_DELETE: &str = "Nothing to delete here.";
 pub const NOTHING_SKIPPED: &str = "Nothing skipped.";
 pub const EXT_NONE: &str = "(none)";
 pub const EXT_OTHER: &str = "(other)";

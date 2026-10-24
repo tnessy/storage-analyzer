@@ -1,0 +1,19 @@
+# T030b report (engineer-2)
+
+- **Loop** (`event_loop.rs`): `start()` turns on `set_incremental_top(true)`; each step, after the scan-message drain, `step_top_rebuild(5 ms)` runs while `top_updating()`; while pending, the input wait is capped at 10 ms; the loop asks for a redraw while pending and once more when it ends.
+- **State** (`state.rs`): `top_pending_since` (set by `tick`), `largest_updating()` = pending and (200 ms passed, or no row left to show); `⏎` on an empty Largest list says `Nothing to delete here.` (new constant `NOTHING_TO_DELETE`, also used by `d` in `delete_flow.rs`).
+- **List** (`list_state.rs`): the Largest stamp includes `top_epoch()`; while a rebuild is pending the list is re-read every time (it is "old list minus deleted", which changes without a new entry). The existing cursor rule keeps the same file selected, else the row now at that position, else the last row, else nothing.
+- **View** (`largest_view.rs`, `tabs.rs`, `copy.rs`): `updating…` (ASCII `updating...`) right-aligned on the column-header row with a 1-cell margin, same style; no `No files found.` while pending. `ui/tabs.rs` (header drawing) is outside the brief's file list; the change is 6 lines.
+- **Tests, seen failing first:** `ui_lists::updating::*` (8; fake clock via `AppState::tick`, rebuild gated by simply not stepping it: 100 ms no text, 250 ms text within 80 columns, rows = old minus deleted and the new list in one frame, `⏎` works, <200 ms never shown, the empty case with `Nothing to delete here.`, genuinely empty list ends in `No files found.`, ASCII, the selection rules) and `app_loop::a_pending_top_rebuild_is_stepped_by_the_loop_and_input_never_waits_more_than_10_ms`. The two selection tests and the cap test were not red on the stubs/old code in every case, so each behaviour got one breakage: stamp not refreshed while pending (5 tests fail), delay removed (2 fail), loop never steps (fails), cap removed (fails).
+- Runbook: check 22 row filled in, gap 1 removed.
+- Checks: fmt, clippy (lib, bins, tests), all lib and integration tests, doc tests, release build. (Examples excluded from my runs this round.)
+
+## Round 2: outcome before removal
+- `on_delete_event(Finished)` now shows the outcome (message or dialog) and stores the event in `pending_delete`; `AppState::apply_pending_delete` (model removal, priority clean-up, Partial/Aborted rescan) runs at the start of the next loop step, after the outcome frame was drawn (`force_draw` ignores the 10 Hz cap for that frame). Until then the model still marks the target as being deleted, so `d` gets the one-at-a-time refusal.
+- Tests (`app_delete`, red first, 4 failed on the old order): outcome frame drawn before the removal and totals on the next frame; `d` in the gap refused; Partial and Aborted dialogs shown before the rescan starts (target still flagged `DELETING`, no rescan in flight). Two existing tests were adjusted for the extra step (`exact_dialog…`, `a_partial_delete_while_stopping…` calls `apply_pending_delete`).
+
+# T035 report
+- `tests/app_names.rs`: real files and folders named with ESC `[2J`, BEL, C1 controls, invalid UTF-8, U+202E, and an unreadable folder with `ESC ] 0;title BEL` in its name, scanned by the real walker (80x24). In the tree and map, Largest, Skipped and the delete confirmation (bidi and ESC names) no cell holds a control or bidi character, and the escaped forms (`\x1b[2J`, `\x07`, `\x85\x9b`, `\u{202E}`, U+FFFD for invalid bytes) are on screen. Skipped when run as root (the folder would be readable).
+- Red first: with `sanitize` returning its input unchanged the test fails (`tree and map: raw '\u{202e}' on row 19`); restored, it passes.
+- Runbook: added under M10 and in the UX check 11 row; gap 4 removed.
+- Note: sanitize writes control escapes in lowercase hex (`\x1b`), the brief said `\x1B`.
