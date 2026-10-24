@@ -487,6 +487,11 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 - **Avoiding a flash:** it appears only if the recompute is still running **200 ms** after it started. It disappears as soon as the new list is in place. Short recomputes never show it.
 - **Rows meanwhile:** the **previous list stays**, with one exception: rows whose node no longer exists (deleted) are removed at once, so the list never offers a file that is gone. When the recompute finishes, the new list replaces the old one in a single frame. There are no partial lists and no empty state in between.
 - **Selection:** it follows the NodeId (F2 rule). If the selected file was deleted, the selection moves to the row now at the same position, or to the last row.
+- **Every visible row deleted while the rebuild is pending** (lead ruling, adjusted). The live list is "old list minus deleted files", so it can be shorter than N, and it can become empty.
+  - **Body:** no rows. The usual `No files found.` is **suppressed**, because it would be false: the real list just isn't ready.
+  - **Header:** `updating…` appears **immediately**, without the 200 ms delay. The delay exists only to avoid a flash over unchanged rows. A blank body with no explanation would look broken, even for 200 ms.
+  - **Selection and keys:** there is no selection. `⏎` and `d` do nothing and show `Nothing to delete here.` (the existing message).
+  - **When the rebuild finishes:** the new list appears in one frame. If it really is empty, the normal `No files found.` shows and `updating…` goes away.
 - **Keys:** `⏎` (show in tree) and `d` stay **enabled**, because every row shown is a live node. Nothing is greyed out.
 - **Header width:** with the text on the right, the header row never truncates the column labels at 80 columns.
 
@@ -828,3 +833,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
       - `⏎` on a row selects that node in the tree.
       - After it finishes, the text is gone and the rows equal the new list.
     - A recompute that takes < 200 ms never renders `updating`.
+    - **All visible rows deleted during a pending rebuild:**
+      - In the very first frame after the deletion, the body has no rows and no `No files found`, and the header contains `updating…`, with no 200 ms wait.
+      - `d` shows `Nothing to delete here.`
+      - If the rebuild ends with an empty list, the body shows `No files found.` and the header has no `updating`.

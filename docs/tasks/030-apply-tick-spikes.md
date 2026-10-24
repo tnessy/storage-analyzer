@@ -76,7 +76,11 @@ The architect's footer and `Updating…`-as-empty-state variant is **not** used.
 - **Placement:** `updating…` (ASCII `updating...`), right-aligned on the Largest view's **column-header row** with a 1-cell right margin, in the header style, with no colour or blinking. Copy constant `LARGEST_UPDATING`.
 - **Shown only if `top_rebuild_pending()` is still true 200 ms after the rebuild started;** hidden as soon as the new list is swapped in.
 - **Rows:** the live entries (the old list minus deleted files, in order). The swap to the rebuilt list happens in a **single frame**.
-- **Edge case, every live entry deleted while pending:** show no rows, and **do not** show `No files found.` while a rebuild is pending; the header text appears after 200 ms as usual. Flagged to UX for confirmation (non-blocking).
+- **Edge case, every visible entry deleted while pending (UX-confirmed, §5.5):**
+  - `updating…` appears **immediately**, with no 200 ms delay (a blank list with no explanation looks broken);
+  - no rows, and `No files found.` hidden;
+  - nothing selected; `⏎` and `d` show the existing `Nothing to delete here.`;
+  - when the rebuild finishes, the new list appears in one frame. If it really is empty, `No files found.` appears and `updating…` goes.
 - **Selection:** stays on the same file. If that file was deleted, it moves to the row now in the same position, or to the last row.
 - **`⏎` and `d` stay enabled.**
 
@@ -94,4 +98,8 @@ The architect's footer and `Updating…`-as-empty-state variant is **not** used.
    - `⏎` works meanwhile;
    - the text is gone after completion;
    - a rebuild under 200 ms never shows it.
+   - **Empty edge case:**
+     - in the first frame after a deletion that removes every visible entry: no rows, no `No files found.`, and `updating…` already in the header;
+     - `d` shows `Nothing to delete here.`;
+     - a rebuild that ends empty shows `No files found.` and no `updating…`.
 8. **Selection rule:** a survivor stays selected; a deleted selection moves to the same position, or to the last row.
