@@ -34,3 +34,13 @@ All 23 were reported red first.
   - removal of the folder branch of `category_of_node` and of the `dir_categories` cache, as the T026 note asked (`category_of_node` is now file-only and still used);
   - in `tests/model_indexes.rs`, the three folder-category tests replaced by one file-category test.
 - **Deferred:** the "delete retry succeeds after a dir became a file" test goes to T011, because it needs `begin_delete`. Agreed; it is already listed in T012 criterion 4, so carry it into T011.
+
+## Re-review 2026-10-23: APPROVED, committed
+I verified this proactively, without a separate hand-off, because engineer-2 was blocked on it.
+- **Fresh run** (clean worktree, T012 files only): fmt ok, clippy clean; model_controls 25 and every other suite pass in 3 runs; release build ok.
+- **Fix verified in code:** `remove_issues_of` drops issues with an order-preserving `retain`, then re-indexes `tree.issue` once.
+- **Tests:** `removing_issues_keeps_the_list_in_insertion_order` and `removing_a_subtree_with_issues_keeps_the_rest_in_order` were added. **My mutation** (reverse the kept issues) makes the first one fail ✓.
+- **I confirmed the model files contained no T011 code** (all four `todo!("T011")` stubs intact) before staging. T011's new test files were left uncommitted.
+- **Two comments still contradict D12; fix them as the first item of T011:**
+  - `control.rs` `remove_issues_of`'s doc says "the Skipped list addresses rows by position". After T020 it addresses rows **by node**.
+  - The `Model::issues()` doc comment from the review is missing: "insertion order; entries may be removed by rescans; a node has at most one issue, so key UI rows by `ScanIssue::node`, not by index."

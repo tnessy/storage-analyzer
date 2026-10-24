@@ -73,3 +73,10 @@ T011 now runs **before** T007. If your real-filesystem tests need a fixture buil
 
 ## Carried over from T012 (criterion 4)
 Integration test: a dir replaced by a file, then rescanned (`Identity` turns it into a file), then **a delete retry succeeds**. `begin_delete` builds a request with the new identity and kind, and the T010 executor removes it.
+
+## First item (from the T012 re-review)
+Fix two comments that contradict plan D12 (no behaviour change):
+- the `remove_issues_of` doc in `src/model/control.rs`;
+- the missing `Model::issues()` doc comment.
+
+The exact wording is in `012-review.md`.

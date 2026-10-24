@@ -2,17 +2,17 @@
 //!
 //! Only the main thread mutates the model. Bodies are stubs owned by later tasks.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::sync::{Mutex, PoisonError};
 
 use crate::delete::{DeleteEvent, DeleteRequest};
 use crate::scan::{RawEntry, ScanMsg};
 use crate::types::{IssueKind, Kind, NodeId, Op, ScanIssue, ScanState, SizeMode};
 
 mod category;
+mod control;
 mod hardlink;
 mod index;
 mod names;
@@ -53,6 +53,18 @@ pub enum Refusal {
 pub enum Reconcile {
     None,
     Rescan(NodeId),
+}
+
+/// What `r` does for a folder (design §3.11, plan O7). The app only executes the plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RescanPlan {
+    /// The folder is complete (or nothing scans it): `begin_rescan` + `ScanHandle::rescan`.
+    Full,
+    /// The folder is still being scanned: focus it and resume these skipped folders
+    /// (outermost only), each with `remove_prefixes_under`, `begin_rescan`, `rescan`.
+    PrioritiseAndResume { resume: Vec<NodeId> },
+    /// The root while the scan runs: nothing changes.
+    NoneWhileScanning,
 }
 
 /// Snapshot shown in the delete dialog. Counts are lower bounds unless `exact`.
@@ -139,8 +151,10 @@ pub struct Model {
     top_total: u32,
     top_done: u32,
     indexes: Indexes,
-    /// Cached `category_of_node` per directory, valid while its disk aggregate is unchanged.
-    dir_categories: Mutex<HashMap<NodeId, (u64, Category)>>,
+    /// The folder being prioritised, until it completes.
+    focus: Option<NodeId>,
+    /// Nodes whose rescan has begun and whose fresh listing (or failure) has not arrived.
+    rescan_roots: HashSet<NodeId>,
 }
 
 /// Sums of one listing, applied to the directory and its ancestors in a single walk.
@@ -194,7 +208,8 @@ impl Model {
             top_total: 0,
             top_done: 0,
             indexes: Indexes::new(opts.top_n),
-            dir_categories: Mutex::new(HashMap::new()),
+            focus: None,
+            rescan_roots: HashSet::new(),
         }
     }
 
@@ -343,8 +358,7 @@ impl Model {
             ScanMsg::DirIssue { dir, op, kind } => self.apply_dir_issue(dir, op, kind),
             ScanMsg::Cancelled { dir } => self.apply_cancelled(dir),
             ScanMsg::Done { cancelled } => self.apply_done(cancelled),
-            // Refreshing a rescan root's identity is T012's job.
-            ScanMsg::Identity { .. } => {}
+            ScanMsg::Identity { node, entry } => self.apply_identity(node, entry),
         }
     }
 
@@ -459,6 +473,7 @@ impl Model {
             cur = self.parent(n);
         }
         self.mark_done(dir);
+        self.rescan_roots.remove(&dir);
         if let Some(t) = top
             && !top_was_complete
             && self.is_complete(t)
@@ -482,6 +497,9 @@ impl Model {
 
     fn apply_dir_issue(&mut self, dir: NodeId, op: Op, kind: IssueKind) {
         if !self.is_open_dir(dir) {
+            return;
+        }
+        if kind == IssueKind::Vanished && self.drop_vanished_rescan_root(dir) {
             return;
         }
         self.record_issue(dir, op, kind);
@@ -530,44 +548,9 @@ impl Model {
         category::category_of(ext)
     }
 
-    /// Files by extension; directories by the category holding most bytes inside
-    /// (direct files plus the categories of child directories, weighted by disk size).
+    /// The category of a file, from its extension. Folders are coloured by identity, not type.
     pub fn category_of_node(&self, id: NodeId) -> Category {
-        if self.kind(id) != Kind::Dir {
-            return Self::category_of(&ext_of(self.name(id)));
-        }
-        let size = self.size(id, SizeMode::Disk);
-        let cached = {
-            let cache = self
-                .dir_categories
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            cache.get(&id).copied()
-        };
-        if let Some((at_size, category)) = cached
-            && at_size == size
-        {
-            return category;
-        }
-        let mut weights: BTreeMap<Category, u64> = BTreeMap::new();
-        for &child in self.children(id) {
-            if self.exists(child) {
-                *weights.entry(self.category_of_node(child)).or_default() +=
-                    self.size(child, SizeMode::Disk);
-            }
-        }
-        let mut best: Option<(Category, u64)> = None;
-        for (category, weight) in weights {
-            if best.is_none_or(|(_, w)| weight > w) {
-                best = Some((category, weight));
-            }
-        }
-        let category = best.map_or(Category::AudioOther, |(c, _)| c);
-        self.dir_categories
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(id, (size, category));
-        category
+        Self::category_of(&ext_of(self.name(id)))
     }
 
     /// The largest files by size, biggest first, ties by smaller `NodeId`.
@@ -610,23 +593,6 @@ impl Model {
         ![Flags::HARDLINK_DUP, Flags::ERROR, Flags::OTHER_FS]
             .iter()
             .any(|f| flags.contains(*f))
-    }
-
-    // T012
-    pub fn set_focus(&mut self, _id: Option<NodeId>) {
-        todo!("T012")
-    }
-    /// Reports once when the focused node goes from incomplete to complete.
-    pub fn take_focus_completed(&mut self) -> Option<NodeId> {
-        todo!("T012")
-    }
-    /// `false` if the node is already complete.
-    pub fn mark_skipped(&mut self, _id: NodeId) -> bool {
-        todo!("T012")
-    }
-    /// Returns the node's path and depth for `ScanHandle::rescan`.
-    pub fn begin_rescan(&mut self, _id: NodeId) -> (PathBuf, u32) {
-        todo!("T012")
     }
 
     // T011

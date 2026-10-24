@@ -87,6 +87,22 @@ impl Indexes {
         }
     }
 
+    /// Takes one counted non-directory back out of the extension totals.
+    pub fn remove(&mut self, name: &[u8], disk: u64, apparent: u64) {
+        let key = ext_of(name);
+        let Some(totals) = self.exts.get_mut(&key) else {
+            debug_assert!(false, "removing from a missing extension {key:?}");
+            return;
+        };
+        debug_assert!(totals.count >= 1 && totals.disk_bytes >= disk);
+        totals.disk_bytes -= disk;
+        totals.apparent_bytes -= apparent;
+        totals.count -= 1;
+        if totals.count == 0 {
+            self.exts.remove(&key);
+        }
+    }
+
     pub fn offer_top(&mut self, id: NodeId, disk: u64, apparent: u64) {
         self.top_disk.offer(disk, id);
         self.top_apparent.offer(apparent, id);

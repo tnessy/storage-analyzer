@@ -355,64 +355,13 @@ fn hard_link_duplicates_and_other_filesystem_entries_are_not_counted() {
 }
 
 #[test]
-fn directories_take_the_category_that_holds_most_bytes() {
+fn files_take_their_category_from_the_extension() {
     let mut m = model(10);
-    // r: video/ (dir), docs/ (dir), clip.mp4 (file)
     m.apply(listing(
         0,
         1,
-        vec![dir("video"), dir("docs"), file("clip.mp4", 100_000, 1)],
+        vec![file("clip.mp4", 100, 1), file("notes", 100, 1)],
     ));
-    m.apply(listing(
-        1,
-        4,
-        vec![file("a.mkv", 500_000, 1), file("b.txt", 4096, 1)],
-    ));
-    m.apply(listing(
-        2,
-        6,
-        vec![file("x.pdf", 8192, 1), file("y.pdf", 8192, 1)],
-    ));
-    assert_eq!(
-        m.category_of_node(NodeId(3)),
-        Category::Video,
-        "file by extension"
-    );
     assert_eq!(m.category_of_node(NodeId(1)), Category::Video);
-    assert_eq!(m.category_of_node(NodeId(2)), Category::Documents);
-    assert_eq!(m.category_of_node(NodeId::ROOT), Category::Video);
-
-    // More data arriving changes the answer (the cache must not go stale).
-    let mut m = model(10);
-    m.apply(listing(0, 1, vec![dir("d")]));
-    m.apply(listing(1, 2, vec![file("a.txt", 4096, 1)]));
-    assert_eq!(m.category_of_node(NodeId(1)), Category::CodeText);
-    let mut m = model(10);
-    m.apply(listing(0, 1, vec![dir("d"), dir("e")]));
-    m.apply(listing(1, 3, vec![file("a.txt", 4096, 1)]));
-    assert_eq!(m.category_of_node(NodeId(1)), Category::CodeText);
-    m.apply(listing(2, 4, vec![file("big.mp4", 1_000_000, 1)]));
-    assert_eq!(m.category_of_node(NodeId::ROOT), Category::Video);
-}
-
-#[test]
-fn cached_directory_category_follows_later_listings() {
-    let mut m = model(10);
-    m.apply(listing(0, 1, vec![dir("d")]));
-    m.apply(listing(1, 2, vec![dir("sub"), file("a.txt", 4096, 1)]));
-    assert_eq!(m.category_of_node(NodeId(1)), Category::CodeText);
-    m.apply(listing(2, 4, vec![file("big.mp4", 1_000_000, 1)]));
-    assert_eq!(
-        m.category_of_node(NodeId(1)),
-        Category::Video,
-        "stale cache"
-    );
-}
-
-#[test]
-fn an_empty_directory_is_audio_other() {
-    let mut m = model(10);
-    m.apply(listing(0, 1, vec![dir("empty")]));
-    m.apply(listing(1, 2, vec![]));
-    assert_eq!(m.category_of_node(NodeId(1)), Category::AudioOther);
+    assert_eq!(m.category_of_node(NodeId(2)), Category::Binary);
 }
