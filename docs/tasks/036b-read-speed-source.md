@@ -9,3 +9,6 @@
 - **Unavailable → `None`**, never a fake 0.
 - **Tests with fake `/proc` contents** (an injectable root path or reader).
 - **Wire it in** `app/mod.rs::production_starter` in place of `NoSource` (one line, coordinated with Heimdall, since engineer-2 owns the file).
+
+## Brief v0.7 M13 constraint on the label
+If the architect picks a **process-level** source (`/proc/self/io` `read_bytes`) instead of the device's (`/proc/diskstats`, `/sys/block/*/stat`), M13 requires **the UI label to say so**. That would mean a UX wording change to `read  …` and a one-line copy change in T036a's constant. **Heimdall will route that to UX if it applies.**
