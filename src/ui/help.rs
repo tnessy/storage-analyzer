@@ -59,6 +59,7 @@ pub fn lines(ascii_keys: bool) -> Vec<String> {
     let footer_width = COLUMN * 2 + GAP;
     out.extend(wrap(copy::HELP_MAP_NOTE, footer_width));
     out.extend(wrap(copy::HELP_ETA_FOOTER, footer_width));
+    out.extend(wrap(copy::HELP_HARD_LINK_NOTE, footer_width));
     out
 }
 

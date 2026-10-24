@@ -466,7 +466,25 @@ fn the_help_overlay_fits_80_by_24_in_two_columns_in_unicode_and_ascii() {
         assert!(header.contains("Act and scan"), "{header}");
         // 18 rows tall, from the top border to the bottom border.
         let top = screen.iter().position(|r| r.contains("Help")).unwrap();
-        assert_eq!(bottom - top + 1, 18, "ascii={ascii}");
+        assert_eq!(
+            bottom - top + 1,
+            20,
+            "ascii={ascii}: 18 + the hard-link footer"
+        );
+        // The hard-link footer, wrapped as in UX §6, and every overlay line exactly 80 columns.
+        assert!(
+            text.contains(
+                "Hard links count once, in the folder scanned first: totals match du, folder"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("sizes may not. Deleting one name of a hard-linked file frees no space."),
+            "{text}"
+        );
+        for row in &screen[top..=bottom] {
+            assert_eq!(ui::format::width(row), 80, "ascii={ascii}: {row:?}");
+        }
         if ascii {
             assert!(text.contains('#'), "borders are #");
         }

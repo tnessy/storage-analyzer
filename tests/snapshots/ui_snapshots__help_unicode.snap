@@ -4,7 +4,6 @@ expression: "screen(&mut help, 80, 24)"
 ---
  storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
  [1 Tree]  2 Types  3 Largest  4 Skipped !2
-*  SIZE      %  OF PARENT      NAME
 ╔═ Help ═══════════════════════════════════════════════════════════════════════╗
 ║ Move and view                          Act and scan                          ║
 ║ ↑↓ j k    Move                         d Delete  Delete (asks first)         ║
@@ -22,7 +21,8 @@ expression: "screen(&mut help, 80, 24)"
 ║ end in / and get their own colour, never a file-type colour in this view.    ║
 ║ ETA appears once a previous complete scan of this root is known. Run with    ║
 ║ --history to remember past scans (keeps one small file in ~/.local/state).   ║
+║ Hard links count once, in the folder scanned first: totals match du, folder  ║
+║ sizes may not. Deleting one name of a hard-linked file frees no space.       ║
 ╚═════════════════════════════════════════════════════════════ Esc or ? close ═╝
-└──────────────────────────────────────────────────┘└────────────────────────┘└┘
 ◌ Scanning  00:00 elapsed
  ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help

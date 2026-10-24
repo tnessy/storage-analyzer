@@ -159,3 +159,5 @@ pub const HELP_RIGHT: [(&str, &str, &str); 8] = [
 ];
 pub const HELP_MAP_NOTE: &str = "Map: files are coloured by type; the tag shows it (e.g. [V] video). Folders end in / and get their own colour, never a file-type colour in this view.";
 pub const HELP_ETA_FOOTER: &str = "ETA appears once a previous complete scan of this root is known. Run with --history to remember past scans (keeps one small file in ~/.local/state).";
+
+pub const HELP_HARD_LINK_NOTE: &str = "Hard links count once, in the folder scanned first: totals match du, folder sizes may not. Deleting one name of a hard-linked file frees no space.";

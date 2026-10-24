@@ -34,3 +34,6 @@ Written first and seen failing against the T023 code (7 failures): `in_256_colou
 4. Snapshots regenerated, plus `help_unicode` / `help_ascii` (22 in all).
 
 Note for UX/lead: UX's help footer dropped the hard-link attribution note that design §3.4 and the T023 brief asked for in the help; I followed UX's 18-row layout, so it is not in the help now. There are 6 spare rows at 24 if it should come back.
+
+## T023b: hard-link help footer
+Test first (`the_help_overlay_fits_80_by_24_in_two_columns_…`, extended): failed with "18 + the hard-link footer" (the overlay was 18 rows). Now the help has the two UX §6 footer lines (`Hard links count once, in the folder scanned first: totals match du, folder` / `sizes may not. Deleting one name of a hard-linked file frees no space.`), is 20 rows at 24, and every overlay line is exactly 80 columns, in Unicode and ASCII. The text constant is `copy::HELP_HARD_LINK_NOTE` (copy lives in `copy.rs`), wrapped in `ui/help.rs`; `help_unicode` and `help_ascii` snapshots updated. fmt, clippy and all suites pass.
