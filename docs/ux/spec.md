@@ -283,7 +283,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
   7. the queued field;
   8. the top-level field.
 
-  **Never dropped:** the state glyph and word, elapsed, and `ETA unknown`. At 80 columns with no prefix, the result is `◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown` (79 cols). With the `▲ First: …` prefix, the same order continues.
+  **Never dropped:** the state glyph and word, elapsed, and `ETA unknown`. At 80 columns with no prefix, the result is `◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown` (78 cells of text; with the 1-cell left margin shown in the §3.1 mockup, the line occupies 79 of 80 columns). With the `▲ First: …` prefix, the same order continues.
 - **80-column drop order (Eta):**
   1. the bar shrinks from 16 to 10 cells;
   2. `elapsed` shortens to its time only, after a `·` separator;
