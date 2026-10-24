@@ -22,3 +22,5 @@
 
 ## Files owned
 `src/app/event_loop.rs`, `src/app/state.rs`, `src/ui/largest_view.rs`, `src/app/list_state.rs`, `src/ui/copy.rs`, `tests/ui_lists.rs`, `tests/app_loop.rs`, and the affected snapshots.
+
+**Also:** turn on `set_incremental_top(true)` at startup. **Add the check 22 tests to `docs/acceptance/runbook.md`** (it lists check 22 as a gap until this task).

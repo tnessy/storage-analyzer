@@ -66,6 +66,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
 | T034 | e2 | Acceptance runbook for M1–M12 (docs only) | — |
 | T030c | e1 | T030 follow-ups: btrfs fixture sync; remove the incremental switch; (maybe) incremental `remove_subtree` | T030, T030b |
+| T035 | e2 | End-to-end test: a real file name with ESC/bidi characters is never rendered raw | T029, T030b |
 | T030b | e2 | Wire the stepped top-N rebuild into the loop + Largest `updating…` (UX check 22) | T030 round 2, T029 |
 | T030 | e1 | Tick-spike diagnosis + split listings over 8,192 entries (`last` flag); chunked arrays only if growth is confirmed | T009 |
 | T031 | e1 | RSS 4.3 vs 2.4 GiB: malloc_stats/trim, alternative allocator, then fix (allocator or per-listing name buffer) | T009 |
@@ -104,7 +105,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 
 ### Suggested order per engineer
 - **engineer-1:** done: T001, T003–T008, T010–T012, T024, T027, T028, T028b, T009. **Next: T030 Parts 1–3 (split listings first), then Part 4, the resumable `recompute_top` (user-approved; top-N reserve + resumable rebuild per design §3.4), with the T031 diagnosis alongside.** T031 fixes that need approval (a new allocator dependency, or a `RawEntry` contract change) go back to the team lead for the user. The thread default stays `min(nproc, 8)`; the user does not request a cold-cache measurement.
-- **engineer-2:** done: T002, T013–T023, T023b, T025, T026, T020b, T021. **Next: T034 (now) → T030b** (after T030 round 2 merges). T029 is done. (T032 is backlog.)
+- **engineer-2:** done: T002, T013–T023, T023b, T025, T026, T020b, T021. **Next: T030b (unblocked; T030 is merged) → T035.** T029 and T034 are done. (T032 is backlog.)
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.
 
