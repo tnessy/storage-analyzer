@@ -439,6 +439,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | Delete removed | `Deleted /home/nss/.cache/yay · freed 31.0 GiB (48,212 files)` |
 | Result dialog dismissed after failures | `112 items could not be deleted. Press v to see them.` |
 | `v` with no failures kept | `No delete failures to show.` |
+| `r`, `p` or `x` on an "other filesystem" row (tree or Skipped view; one-filesystem mode) | `home/ is on another filesystem. To scan it, use --cross-filesystems.` The folder is named by its **name**, not its path, ending in `/`. The fixed text is 63 cells, which leaves 15 cells for the name at 80 columns (with the 1-cell margin). Longer names truncate in the middle with `…` (ASCII `...`), keeping the trailing `/`. No state changes. `d` keeps its own refusal text (§5.3). |
 | Delete removed more than was scanned | `Deleted /home/nss/.cache/yay · freed 33.4 GiB (61,880 files, more than were counted)` |
 | Priority set / cleared | `▲ Scanning .cache/ first.` / `Priority cleared.` |
 | Priority folder finished | `✓ .cache/ fully scanned: 64.9 GiB · 211,004 files` |
@@ -797,3 +798,4 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
     - A following delete that succeeds clears the list, and then `v` shows `No delete failures to show.`
     - An `Aborted` outcome leaves no list.
     - The list fits at 80×24 and scrolls with `j`/`k`.
+21. **Other-filesystem rows:** in one-filesystem mode, `r`, `p` and `x` on an `(other filesystem)` row, in both the tree and the Skipped view, produce the §5.4 text and leave `ScanControl` unchanged. With a 40-character name at 80 columns, the message is ≤ 78 cells and still ends in `--cross-filesystems.`

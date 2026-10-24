@@ -58,6 +58,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 |---|---|---|---|
 | T024 | e1 | Harden the write guard and the APP_ID check (from the T001 review) | T001 |
 | T025 | e2 | Selection styling, neighbour tile shades, `..` parent row (user feedback on the first build) | T016, T017, T018 |
+| T020b | e2 | Message for r/p/x on other-filesystem folders (UX §5.4, check 21) | T020, T027 |
 | T023b | e2 | Hard-link note in the help footer (UX §6, check 19(c)) | T023 |
 | T027 | e1 | Rescan fixes: top_done underflow; never rescan another filesystem (from the T020 review) | T012, T011, T020 |
 | T026 | e2 | Tile colour assignment, option C: files by type, folders by identity (replaces T025's shades) | T025 |
