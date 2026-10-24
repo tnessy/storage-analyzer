@@ -22,21 +22,38 @@ pub fn write(path: impl AsRef<Path>, len: usize) {
     fs::write(path, vec![b'x'; len]).unwrap();
 }
 
-/// `du -s -B1` (disk) or `du -s -B1 --apparent-size` of `path`.
-pub fn du(path: &Path, apparent: bool) -> u64 {
+/// Creates an empty file (parents included).
+pub fn write_empty(path: impl AsRef<Path>) {
+    write(path, 0);
+}
+
+/// `LC_ALL=C du -s -B1 [--apparent-size] [-x]` of `path`. du's exit status is ignored (it
+/// is non-zero when a directory cannot be read, but it still prints the total).
+pub fn du_with(path: &Path, apparent: bool, one_filesystem: bool) -> u64 {
     let mut cmd = Command::new("du");
-    cmd.args(["-s", "-B1"]);
+    cmd.env("LC_ALL", "C").args(["-s", "-B1"]);
     if apparent {
         cmd.arg("--apparent-size");
     }
+    if one_filesystem {
+        cmd.arg("-x");
+    }
     let out = cmd.arg(path).output().expect("du");
-    assert!(
-        out.status.success(),
-        "du failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
     let text = String::from_utf8_lossy(&out.stdout);
-    text.split_whitespace().next().unwrap().parse().unwrap()
+    text.split_whitespace()
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| {
+            panic!(
+                "no du total: {text:?} {}",
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
+}
+
+/// `du -s -B1` (disk) or `du -s -B1 --apparent-size` of `path`.
+pub fn du(path: &Path, apparent: bool) -> u64 {
+    du_with(path, apparent, false)
 }
 
 pub fn root_entry(path: &Path) -> RawEntry {
@@ -86,6 +103,10 @@ pub struct Scan {
 impl Scan {
     /// `capacity` is the scan channel size; a small one keeps the walker close behind the test.
     pub fn start(root: &Path, threads: usize, capacity: usize) -> Scan {
+        Scan::start_with(root, threads, capacity, true)
+    }
+
+    pub fn start_with(root: &Path, threads: usize, capacity: usize, one_filesystem: bool) -> Scan {
         let control = Arc::new(ScanControl::new());
         let (tx, rx) = sync_channel(capacity);
         let root_dev = fs::metadata(root).unwrap().dev();
@@ -95,7 +116,7 @@ impl Scan {
             root_dev,
             ScanOptions {
                 threads,
-                one_filesystem: true,
+                one_filesystem,
             },
             Arc::clone(&control),
             tx,
@@ -179,5 +200,127 @@ pub fn check_exact(m: &Model, max_id: u32) {
         for &c in m.children(n) {
             assert!(m.exists(c), "{n:?} lists the removed child {c:?}");
         }
+    }
+}
+
+/// Scans `root` to `Done` and returns the model.
+pub fn scan_to_done(root: &Path, threads: usize, one_filesystem: bool) -> Model {
+    let mut scan = Scan::start_with(root, threads, 256, one_filesystem);
+    scan.until_done();
+    scan.model
+}
+
+/// The tree of design §4 Testing, built inside a temp dir on the chosen filesystem.
+pub struct M8Tree {
+    pub root: PathBuf,
+    pub locked: Option<PathBuf>,
+    /// Extra hard links (the number of `HARDLINK_DUP` nodes a scan must produce).
+    pub extra_links: usize,
+    _tmp: tempfile::TempDir,
+    _outside: tempfile::TempDir,
+}
+
+impl Drop for M8Tree {
+    fn drop(&mut self) {
+        if let Some(locked) = &self.locked {
+            let _ =
+                fs::set_permissions(locked, std::os::unix::fs::PermissionsExt::from_mode(0o755));
+        }
+    }
+}
+
+/// `SA_TEST_BTRFS_DIR`, if set: a writable directory on btrfs.
+pub fn btrfs_dir() -> Option<PathBuf> {
+    std::env::var_os("SA_TEST_BTRFS_DIR").map(PathBuf::from)
+}
+
+/// Where the parity suite runs: the default temp dir, and btrfs when configured.
+pub fn locations() -> Vec<(&'static str, Option<PathBuf>)> {
+    let mut all = vec![("tmp", None)];
+    match btrfs_dir() {
+        Some(dir) => all.push(("btrfs", Some(dir))),
+        None => println!("SKIP: SA_TEST_BTRFS_DIR is not set, btrfs case not run"),
+    }
+    all
+}
+
+pub fn m8_tree(base: Option<&Path>) -> M8Tree {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let tmp = match base {
+        Some(dir) => tempfile::tempdir_in(dir).unwrap(),
+        None => tempfile::tempdir().unwrap(),
+    };
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path().join("big.dat"), 3_000_000);
+    let root = tmp.path().join("root");
+    fs::create_dir(&root).unwrap();
+
+    // Plain files, zero-byte files, empty directories.
+    write(root.join("plain/a.txt"), 1);
+    write(root.join("plain/b.bin"), 123_456);
+    write(root.join("plain/empty.dat"), 0);
+    fs::create_dir_all(root.join("plain/empty_dir/also_empty")).unwrap();
+
+    // Hard links: within one directory and across directories.
+    write(root.join("links/a/h1"), 8000);
+    fs::hard_link(root.join("links/a/h1"), root.join("links/a/h1b")).unwrap();
+    fs::create_dir_all(root.join("links/b")).unwrap();
+    fs::create_dir_all(root.join("links/c")).unwrap();
+    fs::hard_link(root.join("links/a/h1"), root.join("links/b/h2")).unwrap();
+    fs::hard_link(root.join("links/a/h1"), root.join("links/c/h3")).unwrap();
+    write(root.join("links/a/p"), 20_000);
+    fs::hard_link(root.join("links/a/p"), root.join("links/a/q")).unwrap();
+
+    // Symlinks: dangling, loops, outside the root, to a file and to a directory.
+    fs::create_dir_all(root.join("sym")).unwrap();
+    symlink("nowhere", root.join("sym/dangling")).unwrap();
+    symlink(".", root.join("sym/loop")).unwrap();
+    symlink("loop_b", root.join("sym/loop_a")).unwrap();
+    symlink("loop_a", root.join("sym/loop_b")).unwrap();
+    symlink(outside.path(), root.join("sym/outside_dir")).unwrap();
+    symlink(
+        outside.path().join("big.dat"),
+        root.join("sym/outside_file"),
+    )
+    .unwrap();
+    symlink("../plain/b.bin", root.join("sym/inside_file")).unwrap();
+    symlink("../plain", root.join("sym/inside_dir")).unwrap();
+
+    // A sparse file: 20 MiB long, a few real bytes.
+    let sparse = fs::File::create(root.join("sparse.dat")).unwrap();
+    sparse.set_len(20 * 1024 * 1024).unwrap();
+    std::os::unix::fs::FileExt::write_all_at(&sparse, b"data", 10 * 1024 * 1024).unwrap();
+
+    // Names with invalid UTF-8 and with a newline.
+    let weird = root.join("weird");
+    fs::create_dir(&weird).unwrap();
+    fs::write(
+        weird.join(std::ffi::OsStr::from_bytes(b"bad\xff\xfename")),
+        vec![b'x'; 5000],
+    )
+    .unwrap();
+    fs::write(weird.join("line\nbreak"), vec![b'x'; 70]).unwrap();
+
+    // 200 levels of nesting.
+    let mut deep = root.join("deep");
+    for _ in 0..200 {
+        deep.push("d");
+    }
+    fs::create_dir_all(&deep).unwrap();
+    fs::write(deep.join("bottom.txt"), vec![b'x'; 300]).unwrap();
+
+    // A directory nobody can read (not for root, where permissions do not apply).
+    let locked = (!rustix::process::geteuid().is_root()).then(|| {
+        write(root.join("locked/secret.dat"), 10_000);
+        fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
+        root.join("locked")
+    });
+    M8Tree {
+        root,
+        locked,
+        extra_links: 4,
+        _tmp: tmp,
+        _outside: outside,
     }
 }
