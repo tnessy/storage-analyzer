@@ -1,5 +1,7 @@
 # v1 hand-off to project-owner (Heimdall, 2026-10-23)
 
+> **ON HOLD (2026-10-24):** the user added v1 scope (disk read speed in the status bar, T036). The acceptance pin below is **superseded** once T036 lands; a new pin and a fresh integration pass will follow.
+
 **Status:** every planned v1 task is implemented, reviewed, and committed. **Acceptance build: code commit `979735e`.** Every later commit changes `docs/` only (`git diff 979735e HEAD -- src tests examples Cargo.toml Cargo.lock` is empty). The final acceptance commit is the one that adds this line (`git log -1 --format=%h -- docs/acceptance/v1-handoff.md`). Ready for acceptance using `docs/acceptance/runbook.md`.
 
 ## Integration evidence (fresh, clean worktree at HEAD)

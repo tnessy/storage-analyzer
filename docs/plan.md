@@ -64,6 +64,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T028 | e1 | Walker race: a rescan right after a stop can be lost (architect, from the T021 review) | T006, T020, T027 |
 | T028b | e1 | rescan_many + cancel flag captured under lock (architect low findings on T028) | T028 |
 | T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
+| T036 | e1 (sampler) + e2 (status line) | **New v1 scope (user, 2026-10-24):** disk read speed in the status bar while scanning. Brief pending the architect's source/design and UX's §5.2 placement | T030c |
 | T034 | e2 | Acceptance runbook for M1–M12 (docs only) | — |
 | T030c | e1 | T030 follow-ups: `sync_fs` in `m8_tree`; remove the incremental switch; log `~/workspace` entry count | T030, T030b |
 | T035 | e2 | End-to-end test: a real file name with ESC/bidi characters is never rendered raw | T029, T030b |
