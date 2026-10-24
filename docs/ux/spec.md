@@ -56,11 +56,11 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
    19.6G   10.7  █              ├─▸ Projects/
    12.3G    6.7  ▋           !  ├─▸ Downloads/  (permission denied)   ↓ 4
  Map: /home/nss (updating) ────────────────────────────────────────────────────
-╔ .cache/ 64.2G 35% [A] ══╗┌ Videos/ 41.8G 23% [V]┐┌ .local/ ≥28.1G 15%[B] ─┐
+╔ .cache/ 64.2G 35% ══════╗┌ Videos/ 41.8G 23% ────┐┌ .local/ ≥28.1G 15% ─────┐
 ║                         ║│                      ││                        │
 ║                         ║│                      │└────────────────────────┘
 ║                         ║│                      │┌ Projects/ 19.6G ┐┌ Dow…┐
-║                         ║│                      ││ 11% [C]         ││ 7% !│
+║                         ║│                      ││ 11%             ││ 7% !│
 ╚═════════════════════════╝└──────────────────────┘└─────────────────┘└─────┘
  ◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown
  ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help
@@ -131,12 +131,19 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
   - Double border (`╔═╗`).
   - Its **whole frame** (border cells and title row) is drawn in **reverse video and bold**, so it reads as a solid bright outline.
   - The title starts with `>`.
-  - The interior keeps its category fill, so the category stays visible.
+  - The interior keeps its normal fill (§7), so the tile is still recognisable.
   - This applies whether the tree or the map has focus, because the map tile is the main "where am I" cue. The map pane's `*` shows which pane has keyboard focus.
   - NO_COLOR: the same, using attributes only.
 - **Other tiles:** single border in the default foreground.
 - **Label:** first line is `name size pct% [T]`, and the second line holds whatever didn't fit. Labels truncate with `…`. Tiles narrower than 6 cells get no label, but a `!` or `⊘` marker still shows if one applies.
-- **Category tag and fill:** `[V]` video, `[I]` image, `[A]` archive, `[C]` code/text, `[B]` binary, `[D]` documents, `[O]` other/audio. Fill colors are listed in §7.
+- **Category tag:** `[V]` video, `[I]` image, `[A]` archive, `[C]` code/text, `[B]` binary, `[D]` documents, `[O]` other/audio.
+  - **File tiles:** `name size pct% [T]`.
+  - **Folder tiles:** `name/ size pct%`, with **no tag**. The trailing `/` is the folder marker, and a folder's dominant category is no longer shown on the map; the Types view covers it.
+  - This makes the two tile kinds readable without colour.
+- **Fill (option C, chosen by the user 2026-10-23):**
+  - **File tiles** use their file-type colour.
+  - **Folder tiles** use a colour of their own, from the same palette, but **never a hue that a file type uses in the same view** (§7).
+  - Within one map view, a hue therefore means exactly one thing: a file type, or "just this folder".
 - **Aggregate tile:** `(+N smaller)`, grey.
 - **Hidden-items notice (lead ruling, T017).** Tiles that round to zero cells are dropped.
   - **When it shows:** at least one item with size > 0 is in map scope but has no tile, **and** no `(+N smaller)` tile is drawn. If an aggregate tile is drawn, its N includes all hidden items and there is no notice.
@@ -474,38 +481,69 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ## 7. Visual system
 - **Text and chrome:** the terminal's default foreground and background. Dim text is used only for decoration such as tree guides, never for information.
 - **Selection and focus:** see §3.2.1 (tree row) and §3.3 (map tile). The focused pane's title is bold with `*`. **Rows in reverse video never use DIM.**
-- **Category fills** (Okabe-Ito; black label text unless noted; WCAG contrast computed 2026-10-23 with the relative-luminance formula):
+- **Tile colours: option C, hybrid (chosen by the user 2026-10-23).** Files are coloured by type and folders by identity. The A/B/C comparison is kept in the change log at the end of this section.
 
-| Category | Hex | Label text | Contrast |
-|---|---|---|---|
-| `[V]` video | #E69F00 | black | 9.32:1 |
-| `[I]` image | #56B4E9 | black | 9.10:1 |
-| `[A]` archive | #009E73 | black | 6.14:1 |
-| `[C]` code/text | #F0E442 | black | 15.88:1 |
-| `[B]` binary | #0072B2 | **white** | 5.19:1 |
-| `[D]` documents | #D55E00 | black | 5.43:1 |
-| `[O]` other/audio | #CC79A7 | black | 6.86:1 |
-| aggregate or mixed | #BBBBBB | black | 10.94:1 |
+**Palette.** One table serves both roles. The file-type assignment is fixed. Contrast was computed with the WCAG formula. The xterm-256 value is the nearest entry by RGB, with its contrast rechecked.
 
-**Alternate shades (telling neighbours apart).** Tiles are coloured by the dominant category of their content, so many neighbours share a colour. Each category therefore has a **base** and an **alternate** shade. The shades differ in lightness, which colour-vision deficiency doesn't remove, and keep the same hue family. The category is always carried by the `[T]` tag, never by shade.
+| Hue | Truecolor | xterm-256 | Label | Contrast (truecolor / 256) | File type (fixed) | Folder order |
+|---|---|---|---|---|---|---|
+| yellow | #F0E442 | 221 (#FFD75F) | black | 15.88 / 15.14 | `[C]` code/text | 0 |
+| blue | #0072B2 | 25 (#005FAF) | **white** | 5.19 / 6.45 | `[B]` binary | 1 |
+| orange | #E69F00 | 178 (#D7AF00) | black | 9.32 / 10.02 | `[V]` video | 2 |
+| bluish green | #009E73 | 35 (#00AF5F) | black | 6.14 / 7.30 | `[A]` archive | 3 |
+| sky blue | #56B4E9 | 74 (#5FAFD7) | black | 9.10 / 8.60 | `[I]` image | 4 |
+| vermillion | #D55E00 | 166 (#D75F00) | black | 5.43 / 5.53 | `[D]` documents | 5 |
+| reddish purple | #CC79A7 | 175 (#D787AF) | black | 6.86 / 7.97 | `[O]` other/audio | 6 |
+| grey (reserved) | #BBBBBB | 250 (#BCBCBC) | black | 10.94 / 11.06 | aggregate `(+N smaller)` only | never |
 
-| Category | Base | Alternate | Alt label | Alt contrast | Base:alt luminance ratio |
-|---|---|---|---|---|---|
-| `[V]` | #E69F00 | #F0C566 | black | 12.88:1 | 1.38 |
-| `[I]` | #56B4E9 | #9AD2F2 | black | 12.87:1 | 1.41 |
-| `[A]` | #009E73 | #66C5AB | black | 10.14:1 | 1.65 |
-| `[C]` | #F0E442 | #BBB233 | black | 9.53:1 | 1.67 |
-| `[B]` | #0072B2 | #004A74 | white | 9.41:1 | 1.81 |
-| `[D]` | #D55E00 | #8A3D00 | **white** | 7.64:1 | 1.98 |
-| `[O]` | #CC79A7 | #E0AFCA | black | 11.15:1 | 1.63 |
-| aggregate | #BBBBBB | #969696 | black | 7.10:1 | 1.54 |
+All pairs are ≥ 5.19:1, which meets ≥ 4.5:1. The folder order alternates light and dark, so neighbouring folders differ in lightness as well as hue, and lightness survives colour-vision deficiency.
 
-- Alternate shades are base mixed 40% toward white, except `[C]` (22% toward black), `[B]` (35% toward black), `[D]` (35% toward black, so it isn't confused with light orange) and aggregate (20% toward black). Contrast was computed this session with the WCAG formula. Every label pair is ≥ 7:1.
-- **Assignment (deterministic):** walk the tiles in layout order (size descending, ties by NodeId). A tile takes the **alternate** shade if a tile already coloured shares a border segment with it, has the same category, and uses the base shade. Otherwise it takes the base. With 3 or more mutually adjacent same-category tiles, two may still share a shade; the grout frame still separates them.
-- **Not used:** hatching or pattern fills, which make labels harder to read; and per-tile random hues, which would break the category meaning and the colour-blind-safe palette.
-- **NO_COLOR:** no fills, so shades don't apply. The grout borders separate tiles.
+**Avoiding the ambiguity (an orange folder next to an orange video file).**
 
-- **Color depth:** truecolor if `COLORTERM` is `truecolor` or `24bit`; otherwise the nearest xterm-256 color with black or white label text chosen per the contrast table (**Open question:** recheck the 256-color contrast in build review); otherwise monochrome.
+The Okabe-Ito set has only 7 hues, and file types use all 7. So no *global* split exists that keeps every file-type colour and still leaves hues for folders. The split is therefore made **per view**:
+
+- **Reserved set R(view).** The hues of every file-type category that has at least one *direct file child* in the map's scope folder (the folder whose children the map shows).
+  - R includes small files that got no tile. This keeps it stable, because adding a tile never changes R.
+  - R only grows during a session. A delete does not shrink it; a rescan of that folder rebuilds it.
+- **Folder tiles may use only the hues not in R.** File tiles always use their type hue.
+- **Result:** in any one view, no folder shares a hue with any file type present, so colour sameness never suggests a false relation.
+- **Typical case:** a scope folder's direct files cover 0–2 types, which leaves folders 5–7 hues.
+- **Second cue** (also for NO_COLOR and for colour-vision deficiency): folders show a trailing `/` and no tag; files show a `[T]` tag and no `/`.
+
+**Assignment (deterministic, sticky, per relayout ≤ 2 Hz).** Layout order is size descending, ties broken by NodeId. The *neighbours* of a tile are the tiles already processed in this pass that share a border segment with it, files included.
+1. **File tile:** its type hue. **Aggregate:** grey.
+2. **Folder tile:** the free hues are the folder-order hues not in R.
+   1. **Memory:** `AppState` keeps a map from `NodeId` to hue for the session. A folder's tile only ever appears in its parent's view, so a remembered hue is always judged against the same R.
+   2. **Keep:** if the remembered hue is free and no neighbour uses it, keep it.
+   3. **Pick:** otherwise, take the first free hue in folder order, starting at `NodeId mod 7` and skipping hues in R, that no neighbour uses. Remember it.
+   4. **All free hues used by neighbours:** take the free hue used least among the neighbours, lowest order on a tie. The grout frame still separates the tiles.
+   5. **No free hues** (direct files of all 7 types): draw folder tiles **unfilled**, with frame and label on the default background, as under NO_COLOR. "Unfilled" then also reads as "folder".
+3. **When colours change:** a folder only changes colour when its hue is newly added to R, which happens once, when the first file of that type is seen in the scope folder, or when it would otherwise touch a same-coloured neighbour. Size changes and re-ranking alone never recolour.
+
+**Pure function:** `assign(tiles, adjacency, kinds, reserved, memory) -> (fills, memory')`, where `fills` is a hue or `Unfilled` for each tile. It is unit-tested without a terminal.
+
+**Other rules:**
+- **NO_COLOR and monochrome:** no fills. The grout frames separate the tiles; `/` versus `[T]` tells folders from files. R and the memory are still computed, but unused.
+- **Legend:**
+  - The Types view shows a 2-cell swatch before each category row in truecolor and 256-colour. With NO_COLOR it shows only the tag.
+  - The help overlay adds two lines:
+    - `Map: files are coloured by type (tag shows it, e.g. [V] video). Folders end in / and get their own colour,`
+    - `never one used by a file type in the same view.`
+- **Not used:**
+  - hatching or pattern fills (they hurt label legibility);
+  - hues outside Okabe-Ito (not validated as colour-blind safe);
+  - same-hue alternate shades (rejected by the user as too similar);
+  - pale tints of file-type hues for folders (they look related to the file type, which is the ambiguity being removed).
+
+**Change log:**
+- T025 used same-hue shades. The user found neighbours too similar.
+- Three options were compared:
+  - A: identity colours for every tile;
+  - B: alternates taken from another category's hue (misleading);
+  - C: the hybrid.
+- The user chose C.
+
+- **Color depth:** truecolor if `COLORTERM` is `truecolor` or `24bit`; otherwise the xterm-256 column of the §7 palette; otherwise monochrome.
 - **ASCII fallback** (no Unicode or `LANG=C`): `◌`→`~`, `▲`→`^`, `⊘`→`-`, `≥`→`>=`, `▾▸`→`-+`, `█…`→`#`, double border→`#`, single border→`+-|`.
 - **Motion:** spinner at no more than 10 fps; data redraws at no more than 10 Hz; map relayout at no more than 2 Hz (design §5). Nothing blinks.
 
@@ -582,7 +620,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 ## 11. Acceptance checks (scriptable; ratatui `TestBackend` unless noted)
 1. **80×24 snapshots** exist for: §3.1 scanning; Done; Stopped; empty folder; each view; each dialog in §5.3; too small (79×24). Each one is also rendered with `NO_COLOR=1` and with the ASCII fallback.
 2. **NO_COLOR** set: the rendered buffer has no cell with a non-default fg or bg color. Each §5.1 state is still distinguishable by its glyph or suffix text, and a test diffs the two buffers.
-3. **Contrast:** for each fill in §7 (and each 256-color mapping), `contrast(label, fill) ≥ 4.5`.
+3. **Contrast:** for each of the 8 fills in the §7 palette, in both the truecolor and xterm-256 columns, `contrast(label, fill) ≥ 4.5`.
 4. **ETA:**
    - It never shows a number while `Estimating`.
    - `estimating` never appears when there is no ETA source. In that case the Starting line has no `ETA` text at all.
@@ -646,10 +684,21 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
     - Map focused: the selected row has BOLD, has UNDERLINED on the name cells, and has no REVERSED.
     - In both cases, every frame cell of the selected tile has REVERSED.
     - All of this holds identically with `NO_COLOR=1`.
-17. **Neighbour shading:**
-    - In a fixture with 6 sibling folders of the same category laid out in one row, no two tiles that share a border segment have the same fill (truecolor).
-    - Every frame cell (border and title) has the default bg.
-    - Every fill/label pair in the §7 tables has contrast ≥ 4.5.
+17. **Tile colours (§7, option C):** unit tests on `assign`, plus a TestBackend check.
+    - **(a) File tiles:** each file tile's fill equals its type hue.
+    - **(b) No overlap with file types.** Scope folder with direct `.mp4` and `.zip` files and 6 subfolders: no folder tile uses orange or bluish green, in truecolor or 256-colour.
+    - **(c) No touching tiles share a fill:**
+      - 6 same-type sibling folders in one row;
+      - a 7-tile grid.
+      With 5 or more free hues, no two edge-sharing tiles have the same fill.
+    - **(d) Stability:** 20 relayouts with changing sizes and unchanged adjacency recolour nothing. Adding a file of a new type to the scope folder recolours only the folders that used that hue, once.
+    - **(e) Zoom:** zooming in and out keeps every folder's colour.
+    - **(f) All 7 types present:** folder tiles are unfilled and have default bg.
+    - **(g) Aggregate:** the aggregate tile is grey #BBBBBB / 250, and no other tile is.
+    - **(h) Labels:** folder labels end in `/` and contain no `[T]` tag; file labels contain a tag.
+    - **(i) Frames:** every frame cell has the default bg.
+    - **(j) NO_COLOR:** no fills anywhere, and (h) still holds.
+    - **(k) Determinism:** the same input and memory give the same output.
 18. **`..` row:**
     - It is absent at the scan root. After `⏎` on a folder, row 0 is `..`, and the selection is on row 1 (the view root).
     - `⏎` on `..` gives the same state as `⌫`, and the selection becomes the folder you left.

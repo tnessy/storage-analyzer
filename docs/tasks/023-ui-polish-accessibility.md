@@ -44,3 +44,6 @@ The Types side panel. Dialog snapshots (T021).
 
 ## Note from T025
 Include the 8 **alternate** tile shades (`ux/spec.md` §7) in the 256-colour mapping and in the contrast check. The ASCII fallback must cover the tree guide glyphs and the selected-tile `>` marker. Also confirm with UX the STATE-to-guide spacing nit from the T016 review.
+
+## Note from T026
+The alternate shades are gone (T026). Colour depth uses the §7 option-C palette's xterm-256 column, which T026 adds to `theme.rs`. The help overlay renders T026's two map-colour lines from `copy.rs`. The Types swatch must show in 256-colour mode, and be hidden under NO_COLOR.

@@ -58,6 +58,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 |---|---|---|---|
 | T024 | e1 | Harden the write guard and the APP_ID check (from the T001 review) | T001 |
 | T025 | e2 | Selection styling, neighbour tile shades, `..` parent row (user feedback on the first build) | T016, T017, T018 |
+| T026 | e2 | Tile colour assignment, option C: files by type, folders by identity (replaces T025's shades) | T025 |
 
 ### Wave 1: foundations (parallel across engineers)
 | Task | Engineer | Title | Depends on |
@@ -90,7 +91,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 
 ### Suggested order per engineer
 - **engineer-1:** T001 → T003 → T024 → T008 → T004 → T006 → T007 → T005 → T009 → T010 → T012 → T011
-- **engineer-2:** T002 → T013 → T014 → T015 → T016 → **T017 → T018 → T025** → T022 → T019 → T020 → T023 → T021. The user approved moving T017/T018 ahead of T022/T019 on 2026-10-23. T022 and T019 are on hold until T017 and T018 are done. T017 therefore lands before R5: if R5 later recommends a different relayout policy, it is a follow-up to T017.
+- **engineer-2:** T002 → T013 → T014 → T015 → T016 → **T017 → T018 → T025 → T026** (before T022 if T022 hasn't started, otherwise right after it) → T022 → T019 → T020 → T023 → T021. The user approved moving T017/T018 ahead of T022/T019 on 2026-10-23. T022 and T019 are on hold until T017 and T018 are done. T017 therefore lands before R5: if R5 later recommends a different relayout policy, it is a follow-up to T017.
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.
 
