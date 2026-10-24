@@ -101,7 +101,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 
 ### Suggested order per engineer
 - **engineer-1:** done: T001, T003–T008, T010–T012, T024, T027, T028, T028b, T009. **Next: T030 → T031 → T033 (model part).** The thread default stays `min(nproc, 8)`. A cold-cache run at 4 vs 8 threads needs the **user** (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches` before each run); if 4 is within ~10 % of 8, the default becomes 4.
-- **engineer-2:** T002 → T013 → T014 → T015 → T016 → **T017 → T018 → T025 → T026**, T023, **T023b** (before T022 if T022 hasn't started, otherwise right after it) → T022 → T019 → T020 → T023 → T021. The user approved moving T017/T018 ahead of T022/T019 on 2026-10-23. T022 and T019 are on hold until T017 and T018 are done. T017 therefore lands before R5: if R5 later recommends a different relayout policy, it is a follow-up to T017.
+- **engineer-2:** done: T002, T013–T023, T023b, T025, T026, T020b, T021. **Next: T029 → T032 → T033 (Largest view part, once its brief is completed).**
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.
 
