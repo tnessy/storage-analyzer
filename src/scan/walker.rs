@@ -97,16 +97,17 @@ impl Shared {
 
     /// Sends `Done` once nothing is queued or running.
     fn check_complete(&self) {
-        let first = {
+        // Decided together with the cancel flag: a rescan clears both under this lock.
+        let done = {
             let mut sent = lock(&self.done_sent);
             let complete = self.queue.pending_jobs() == 0 && !*sent;
             if complete {
                 *sent = true;
             }
-            complete
+            complete.then(|| self.control.is_cancel_all())
         };
-        if first {
-            self.send_done(self.control.is_cancel_all());
+        if let Some(cancelled) = done {
+            self.send_done(cancelled);
         }
     }
 
@@ -376,16 +377,27 @@ pub fn start<F: FsAccess + 'static>(
 impl ScanHandle {
     /// Works at any time, also after `Done` / `Stopped`.
     pub fn rescan(&self, dir: NodeId, path: PathBuf, depth: u32) {
+        self.rescan_many(&[(dir, path, depth)]);
+    }
+
+    /// Rescans several directories as one step: no `Done` can appear between them.
+    pub fn rescan_many(&self, targets: &[(NodeId, PathBuf, u32)]) {
         let shared = &self.shared;
-        if shared.is_closing() {
+        if targets.is_empty() || shared.is_closing() {
             return;
         }
         // One step: a worker deciding that the scan is complete sees either the old state or
-        // the whole resumed one, and the queue clears the cancel and adds the job atomically.
+        // all of the resumed one, and the queue clears the cancel and adds each job atomically.
         let mut done_sent = lock(&shared.done_sent);
         *done_sent = false;
-        lock(&shared.rescans).insert(dir);
-        shared.queue.push_resume(Job { dir, path, depth });
+        for (dir, path, depth) in targets {
+            lock(&shared.rescans).insert(*dir);
+            shared.queue.push_resume(Job {
+                dir: *dir,
+                path: path.clone(),
+                depth: *depth,
+            });
+        }
         drop(done_sent);
         shared.wake_parked();
     }

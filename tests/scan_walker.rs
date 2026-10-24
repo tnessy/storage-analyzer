@@ -780,3 +780,53 @@ fn a_rescan_right_after_a_stop_is_never_lost() {
         run.handle.shutdown();
     }
 }
+
+#[test]
+fn rescan_many_gives_one_done_after_all_the_rescans() {
+    for _ in 0..50 {
+        let mut run = begin(FakeFs::generate("/r", 1, 3, 1), "/r", 4, true);
+        let first = run.until_done();
+        let root = listings(&first)[0].1.clone();
+        let targets: Vec<(NodeId, PathBuf, u32)> = root
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.kind == Kind::Dir)
+            .map(|(i, e)| {
+                let name = String::from_utf8_lossy(&e.name).into_owned();
+                (NodeId(1 + i as u32), PathBuf::from("/r").join(name), 1)
+            })
+            .collect();
+        assert_eq!(targets.len(), 3);
+
+        run.handle.rescan_many(&targets);
+        let msgs = run.until_done();
+        let dones = msgs
+            .iter()
+            .filter(|m| matches!(m, ScanMsg::Done { .. }))
+            .count();
+        let relisted = listings(&msgs).len();
+        assert_eq!((dones, relisted), (1, 3), "{msgs:?}");
+        assert_eq!(msgs.last(), Some(&ScanMsg::Done { cancelled: false }));
+        assert!(
+            run.rx.recv_timeout(Duration::from_millis(10)).is_err(),
+            "nothing after Done"
+        );
+    }
+}
+
+#[test]
+fn rescan_many_clears_a_stop_like_rescan_does() {
+    // Big enough that the scan is still running when it is stopped.
+    let mut run = begin(FakeFs::generate("/r", 6, 4, 0), "/r", 2, true);
+    run.next();
+    run.control.cancel_all();
+    while !matches!(run.next(), ScanMsg::Done { cancelled: true }) {}
+    run.fs.dir("/");
+    run.handle.rescan_many(&[(NodeId::ROOT, "/r".into(), 0)]);
+    assert!(!run.control.is_cancel_all());
+    loop {
+        if matches!(run.next(), ScanMsg::Done { cancelled: false }) {
+            break;
+        }
+    }
+}
