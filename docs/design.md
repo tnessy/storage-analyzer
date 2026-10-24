@@ -181,8 +181,10 @@ Indexes, all updated in `apply`:
 - **Top files:** top-N by the current size mode (default N = 100, `--top N`). It is a bounded min-heap during the scan. After a delete the list must stay correct: recompute with an O(files) pass. If that pass exceeds the frame budget at real scale, move it to a helper thread (R2).
 - **Top-N maintenance (T009 follow-up):**
   - **Reserve:** each size mode keeps the exact top `N + R` files (`R = 4N`, so 500 for N = 100), maintained on insert, re-charge and rescan.
-    - Removing files, whether in or out of the list, keeps it exact for the entries left.
-    - Everything outside the list is no larger than its minimum.
+    - **Eviction bound (T030 review):** each list records `bound`, the largest `(size, id)` key it has ever evicted.
+    - Entries ranking above `bound` are exactly the true top files. After removals, a newly offered small file may fill a freed slot, but it ranks below `bound`, so it is not counted as exact.
+    - `exact_len()` = the number of entries above `bound`. Removals take entries out of the heap (O(N+R), about 500).
+    - A rebuild is needed only when `exact_len() < N`. A finished rebuild takes the scratch list's `bound`.
     - The Largest view shows the first N.
   - **A delete that removes no list member:** costs nothing extra.
   - **A rebuild runs only if a removal leaves fewer than N entries:**

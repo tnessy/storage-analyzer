@@ -47,3 +47,21 @@ Without that, every large delete would show `updating…` for about 1.5 s. Archi
 - **Fix:** I moved HEAD back with `git reset --soft HEAD~2` and then unstaged with `git reset`. Neither touches working files, and I confirmed engineer-1's files were byte-identical before and after (md5). The docs were re-committed separately.
 - **T030 code will be committed together with round 2,** after a fresh verification of a stable tree.
 - **Process change:** from now on I stage **only the hash-checked snapshot** I verified (as for T021), never "whatever is modified now".
+
+## Architect review of T030 (2026-10-23)
+**Parts 1–3: approved.**
+- The diagnosed cause is confirmed.
+- The listing-part rules are correct: every part adds sizes, counts and child pending work; only `last` calls `finish_dir`; parts after `last` are dropped.
+- The sharded hard-link table keeps "the first-applied link is charged", so du parity holds.
+
+**Part 4 is correct as far as it goes, but fails criteria 2, 3, 5 and 6.** These are added to round 2, and design §3.4 is updated:
+- **R2-2 (refined), reserve with a bound:**
+  - TopN keeps N + R (R = 4N);
+  - `remove_subtree` takes removed nodes out of the heaps;
+  - a rebuild runs only when `exact_len() < N`;
+  - the **bound rule:** track the largest evicted key; only entries above it are exact; a finished rebuild takes the scratch list's bound.
+- **R2-4 (refined):** a **property test for criterion 3** (random trees and deletes with out-of-order applies, a second delete mid-rebuild, a root rescan mid-rebuild → both modes equal a from-scratch recompute).
+- **R2-6, criterion 5:** measure the rebuild's wall time on `$HOME` (20 M) with the harness, and report it (target ≈ 1.5 s or less).
+- **R2-7, root rescan:** `begin_rescan(root)` must **not** walk all ids. Clear the lists, set the bound to the minimum, and cancel the rebuild.
+
+**Commit plan:** Parts 1–3 can't be split cleanly from the working tree any more, because round 2 is interleaved in `index.rs`/`mod.rs` and I no longer have the verified snapshot. **T030 is committed as one change after round 2** passes verification. That also keeps the architect's rule that users never get a rebuild on every delete. **T030b (engineer-2) lands only after round 2** (already its stated dependency), so the wiring and the reserve reach users together.
