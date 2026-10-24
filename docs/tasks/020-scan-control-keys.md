@@ -124,5 +124,3 @@ The rescan sequence (`app::rescan`) must also call `state.tile_colors.forget_res
 ## Note from the T012 review (plan D12)
 `Model::issues()` entries can now be removed by rescans; the order is insertion order. **Re-key the Skipped list's rows (`RowKey::Issue`) by `ScanIssue::node` (`NodeId`)** instead of by index into `issues()`, and fix the comment at `app/list_state.rs:23`. Test: with the cursor on issue C, a rescan that removes an earlier issue B leaves the cursor on C.
 
-## Also in this task (from the T023 review; UX §6, check 19(c))
-Add the **hard-link footer** to the help overlay, with the exact two lines from `ux/spec.md` §6 (`Hard links count once, in the folder scanned first: totals match du, folder` / `sizes may not. Deleting one name of a hard-linked file frees no space.`). The help is now 20 rows. Extend check 19(c): the overlay at 80×24 contains `Hard links count once` in Unicode and ASCII mode, and still fits. You own `src/ui/help.rs` and the help snapshots for this.
