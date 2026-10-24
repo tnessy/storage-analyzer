@@ -50,6 +50,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
         .skip(top)
         .take(usize::from(area.height))
         .map(|row| {
+            let mut swatch = None;
             let label = match &row.key {
                 RowKey::Category(c) => {
                     let twisty = if state.lists.types_expanded.contains(c) {
@@ -57,9 +58,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
                     } else {
                         state.glyphs.collapsed
                     };
-                    format!("{twisty} {}", category_name(*c))
+                    let hue = state.theme.category_hue(*c);
+                    swatch = state.theme.swatch(hue).map(|s| s.fill);
+                    let tag = state.theme.category_tag(*c);
+                    // Two placeholder cells for the colour swatch, a gap, then the twisty, name and tag.
+                    format!("   {twisty} {} [{tag}]", category_name(*c))
                 }
-                RowKey::Ext(_, key) => format!("    {}", ext_name(key)),
+                RowKey::Ext(_, key) => format!("       {}", ext_name(key)),
                 _ => String::new(),
             };
             let share = if root_total == 0 {
@@ -73,8 +78,20 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
                 format::thousands(row.files),
                 format::percent_tree(share),
             );
-            list_common::line(state, &text, selected == Some(&row.key), width)
+            // Offset of the swatch: the selection mark and space, then the three numeric columns.
+            let at = 2 + NUMERIC_COLUMNS;
+            list_common::line_with_swatch(
+                state,
+                &text,
+                selected == Some(&row.key),
+                width,
+                at,
+                swatch,
+            )
         })
         .collect();
     list_common::render_lines(frame, area, lines);
 }
+
+/// Width of the size, files and percent columns with their separators (`{:>7} {:>9} {}  `).
+const NUMERIC_COLUMNS: usize = 7 + 1 + 9 + 1 + 5 + 2;

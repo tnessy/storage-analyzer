@@ -88,3 +88,9 @@ pub const PARENT_ROW_HINT: &str = "\"..\" is the parent folder. Press ⏎ to go 
 pub const PARENT_ROW_NAME: &str = "..";
 pub const PARENT_ROW_UP: &str = "up to";
 pub const MAP_UP_HINT: &str = "⏎ goes up to";
+
+/// The two help-overlay lines about map colours (T023 renders them).
+pub const HELP_MAP_COLOURS: (&str, &str) = (
+    "Map: files are coloured by type (tag shows it, e.g. [V] video). Folders end in / and get their own colour,",
+    "never one used by a file type in the same view.",
+);

@@ -3,6 +3,7 @@
 #[path = "support/synthetic.rs"]
 mod synthetic;
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -19,6 +20,8 @@ use storage_analyzer::model::{Model, ModelOptions};
 use storage_analyzer::scan::ScanMsg;
 use storage_analyzer::types::{IssueKind, Kind, NodeId, SizeMode};
 use storage_analyzer::ui;
+use storage_analyzer::ui::theme::{ColorDepth, Theme};
+use storage_analyzer::ui::tile_colors::{Fill, Hue};
 use synthetic::{Scan, file, folder};
 
 const ROOT: NodeId = NodeId::ROOT;
@@ -658,10 +661,25 @@ fn tile_frames_use_the_default_background_and_only_the_interior_is_filled() {
     }
 }
 
+fn rgb_of(c: Color) -> (u8, u8, u8) {
+    match c {
+        Color::Rgb(r, g, b) => (r, g, b),
+        // The xterm-256 colour cube and grey ramp.
+        Color::Indexed(n @ 16..=231) => {
+            let level = |v: u8| if v == 0 { 0 } else { 55 + 40 * v };
+            let n = n - 16;
+            (level(n / 36), level(n % 36 / 6), level(n % 6))
+        }
+        Color::Indexed(n @ 232..=255) => {
+            let v = 8 + 10 * (n - 232);
+            (v, v, v)
+        }
+        other => panic!("not a palette colour: {other:?}"),
+    }
+}
+
 fn luminance(c: Color) -> f64 {
-    let Color::Rgb(r, g, b) = c else {
-        panic!("truecolor expected")
-    };
+    let (r, g, b) = rgb_of(c);
     let lin = |v: u8| {
         let v = f64::from(v) / 255.0;
         if v <= 0.04045 {
@@ -678,43 +696,48 @@ fn contrast(a: Color, b: Color) -> f64 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
+const ALL_HUES: [Hue; 8] = [
+    Hue::Yellow,
+    Hue::Blue,
+    Hue::Orange,
+    Hue::BluishGreen,
+    Hue::SkyBlue,
+    Hue::Vermillion,
+    Hue::ReddishPurple,
+    Hue::Grey,
+];
+
 #[test]
-fn every_fill_and_label_pair_meets_the_contrast_floor() {
-    use storage_analyzer::model::Category::*;
-    let theme = storage_analyzer::ui::theme::Theme::standard();
-    let mut checked = 0;
-    for category in [
-        Video, Image, Archive, CodeText, Binary, Documents, AudioOther,
+fn the_palette_meets_the_contrast_floor_in_truecolor_and_256() {
+    for (depth, minimum) in [
+        (ColorDepth::TrueColor, 5.19),
+        (ColorDepth::Indexed256, 5.53),
     ] {
-        let s = theme.category(category);
-        assert!(
-            contrast(s.fill, s.label) >= 4.5,
-            "{category:?} base {:.2}",
-            contrast(s.fill, s.label)
-        );
-        assert!(
-            contrast(s.alt_fill, s.alt_label) >= 7.0,
-            "{category:?} alt {:.2}",
-            contrast(s.alt_fill, s.alt_label)
-        );
-        assert_ne!(s.fill, s.alt_fill, "{category:?} has a distinct alternate");
-        checked += 2;
+        let mut theme = Theme::standard();
+        theme.depth = depth;
+        for hue in ALL_HUES {
+            let sw = theme.swatch(hue).expect("a swatch");
+            let c = contrast(sw.fill, sw.label);
+            assert!(c >= 4.5, "{hue:?} {depth:?}: {c:.2}");
+            assert!(
+                c >= minimum - 0.01,
+                "{hue:?} {depth:?}: {c:.2} below the spec minimum {minimum}"
+            );
+        }
     }
-    let a = theme.aggregate();
-    assert!(contrast(a.fill, a.label) >= 4.5);
-    assert!(contrast(a.alt_fill, a.alt_label) >= 7.0);
-    assert_ne!(a.fill, a.alt_fill);
-    assert_eq!(checked, 14);
-    // Exactly the §7 values.
+    let mut mono = Theme::standard();
+    mono.depth = ColorDepth::Mono;
+    assert!(ALL_HUES.iter().all(|&h| mono.swatch(h).is_none()));
+    let t = Theme::standard();
     assert_eq!(
-        theme.category(Documents).alt_fill,
-        Color::Rgb(0x8A, 0x3D, 0x00)
+        t.swatch(Hue::Orange).unwrap().fill,
+        Color::Rgb(0xE6, 0x9F, 0x00)
     );
-    assert_eq!(
-        theme.category(Documents).alt_label,
-        Color::Rgb(255, 255, 255)
-    );
-    assert_eq!(theme.aggregate().alt_fill, Color::Rgb(0x96, 0x96, 0x96));
+    let mut t256 = Theme::standard();
+    t256.depth = ColorDepth::Indexed256;
+    assert_eq!(t256.swatch(Hue::Orange).unwrap().fill, Color::Indexed(178));
+    assert_eq!(t256.swatch(Hue::Grey).unwrap().fill, Color::Indexed(250));
+    assert_eq!(rgb_of(Color::Indexed(221)), (0xFF, 0xD7, 0x5F));
 }
 
 fn touch(a: Rect, b: Rect) -> bool {
@@ -723,45 +746,345 @@ fn touch(a: Rect, b: Rect) -> bool {
         || (a.bottom() == b.y || b.bottom() == a.y) && overlap(a.x, a.right(), b.x, b.right())
 }
 
-fn six_video_folders() -> AppState {
+/// The interior fill of a tile, read from the buffer.
+fn interior(buf: &Buffer, r: Rect) -> Color {
+    buf[(r.x + r.width / 2, r.y + r.height - 2)].bg
+}
+
+fn depth(state: &mut AppState, d: ColorDepth) {
+    state.theme.depth = d;
+}
+
+/// A scope folder with the given direct files and `folders` sub-folders. The folders have a size
+/// of their own and are still being scanned, so tests can grow them with later listings.
+fn scope_with(files: &[(&str, u64)], folders: usize) -> (AppState, Vec<NodeId>, Vec<NodeId>) {
     let mut scan = Scan::new();
-    let dirs = scan.list(ROOT, (0..6).map(|i| folder(&format!("dir{i}"))).collect());
-    for (i, &d) in dirs.iter().enumerate() {
-        scan.list(d, vec![file(&format!("v{i}.mkv"), 1000 - i as u64 * 20)]);
-    }
-    app_state(scan)
+    let mut items: Vec<_> = files.iter().map(|(n, b)| file(n, *b)).collect();
+    items.extend((0..folders).map(|i| folder(&format!("dir{i}")).bytes(3000 - 100 * i as u64)));
+    let ids = scan.list(ROOT, items);
+    let (file_ids, dir_ids) = ids.split_at(files.len());
+    (app_state(scan), file_ids.to_vec(), dir_ids.to_vec())
 }
 
 #[test]
-fn same_category_neighbours_get_different_fills() {
-    let mut state = six_video_folders();
+fn file_tiles_use_their_type_hue_and_the_aggregate_is_the_only_grey() {
+    let mut files: Vec<_> = vec![("movie.mkv", 100_000u64), ("code.rs", 50_000)];
+    let tiny: Vec<String> = (0..200).map(|i| format!("t{i:03}.rs")).collect();
+    files.extend(tiny.iter().map(|n| (n.as_str(), 100)));
+    let (mut state, ids, _) = scope_with(&files, 0);
+    let buf = render(&mut state, 80, 24);
+    assert_eq!(
+        interior(&buf, tile_of(&state, ids[0])),
+        Color::Rgb(0xE6, 0x9F, 0x00),
+        "video"
+    );
+    assert_eq!(
+        interior(&buf, tile_of(&state, ids[1])),
+        Color::Rgb(0xF0, 0xE4, 0x42),
+        "code"
+    );
+    let aggregate = state
+        .map
+        .tiles()
+        .iter()
+        .find(|t| t.id.is_none())
+        .expect("aggregate");
+    assert_eq!(interior(&buf, aggregate.rect), Color::Rgb(0xBB, 0xBB, 0xBB));
+    for t in state.map.tiles().iter().filter(|t| t.id.is_some()) {
+        assert_ne!(
+            interior(&buf, t.rect),
+            Color::Rgb(0xBB, 0xBB, 0xBB),
+            "only the aggregate is grey"
+        );
+    }
+}
+
+#[test]
+fn folders_never_use_the_hue_of_a_file_type_in_the_same_view() {
+    for d in [ColorDepth::TrueColor, ColorDepth::Indexed256] {
+        let (mut state, files, folders) = scope_with(&[("a.mp4", 4000), ("b.zip", 3000)], 6);
+        depth(&mut state, d);
+        let buf = render(&mut state, 80, 24);
+        let mut theme = Theme::standard();
+        theme.depth = d;
+        let orange = theme.swatch(Hue::Orange).unwrap().fill;
+        let green = theme.swatch(Hue::BluishGreen).unwrap().fill;
+        assert_eq!(interior(&buf, tile_of(&state, files[0])), orange);
+        assert_eq!(interior(&buf, tile_of(&state, files[1])), green);
+        for id in folders {
+            let fill = interior(&buf, tile_of(&state, id));
+            assert!(
+                fill != orange && fill != green,
+                "{d:?}: folder {id:?} uses a file-type hue"
+            );
+            assert_ne!(fill, Color::Reset, "{d:?}: folders are filled");
+        }
+    }
+}
+
+#[test]
+fn touching_tiles_never_share_a_fill_while_free_hues_remain() {
+    let (mut state, _, _) = scope_with(&[], 6);
     let buf = render(&mut state, 80, 24);
     let tiles = state.map.tiles().to_vec();
     assert_eq!(tiles.len(), 6);
-    let fill = |r: Rect| buf[(r.x + 2, r.bottom() - 2)].bg;
-    let mut adjacent = 0;
+    let mut touching = 0;
     for (i, a) in tiles.iter().enumerate() {
         for b in &tiles[i + 1..] {
             if touch(a.rect, b.rect) {
-                adjacent += 1;
+                touching += 1;
                 assert_ne!(
-                    fill(a.rect),
-                    fill(b.rect),
-                    "{:?} and {:?} share a border",
+                    interior(&buf, a.rect),
+                    interior(&buf, b.rect),
+                    "{:?} / {:?}",
                     a.rect,
                     b.rect
                 );
             }
         }
     }
-    assert!(adjacent >= 5, "the fixture has neighbours");
-    // Deterministic: the same input gives the same shades.
-    let again = render(&mut six_video_folders(), 80, 24);
-    for t in &tiles {
-        assert_eq!(fill(t.rect), again[(t.rect.x + 2, t.rect.bottom() - 2)].bg);
+    assert!(touching >= 5);
+    let (mut seven, _, _) = scope_with(&[], 7);
+    let buf = render(&mut seven, 80, 24);
+    let tiles = seven.map.tiles().to_vec();
+    for (i, a) in tiles.iter().enumerate() {
+        for b in &tiles[i + 1..] {
+            if touch(a.rect, b.rect) {
+                assert_ne!(interior(&buf, a.rect), interior(&buf, b.rect));
+            }
+        }
     }
-    // The first tile takes the base shade, its neighbour the alternate.
-    assert_eq!(fill(tiles[0].rect), Color::Rgb(0xE6, 0x9F, 0x00));
+}
+
+fn colour_map(state: &AppState) -> HashMap<NodeId, Fill> {
+    state
+        .map
+        .tiles()
+        .iter()
+        .zip(state.map.fills())
+        .filter_map(|(t, f)| t.id.map(|id| (id, *f)))
+        .collect()
+}
+
+/// Advances the loop clock by one relayout interval and applies a listing that changes a size.
+fn nudge(state: &mut AppState, now: &mut Duration, dir: NodeId, next: &mut u32, bytes: u64) {
+    *now += Duration::from_millis(600);
+    state.tick(*now);
+    state.model.apply(synthetic::listing(
+        dir,
+        *next,
+        vec![synthetic::entry("g.rs", Kind::File, bytes)],
+    ));
+    *next += 1;
+}
+
+#[test]
+fn colours_stay_put_while_sizes_change_and_move_once_for_a_new_file_type() {
+    // Seven folders: the seventh stays unscanned until the end, to give the last step a size change.
+    let (mut state, _, mut folders) = scope_with(&[("a.mp4", 5000)], 7);
+    let spare = folders.pop().expect("a spare folder");
+    let (mut now, mut next) = (Duration::ZERO, 9000);
+    state.tick(now);
+    render(&mut state, 80, 24);
+    let first = colour_map(&state);
+    let relayouts_before = state.map.relayouts();
+    // Twenty size changes: every relayout reshuffles sizes and may reorder the tiles.
+    for round in 0..20u64 {
+        let dir = folders[(round % 6) as usize];
+        if state.model.children(dir).is_empty() {
+            nudge(&mut state, &mut now, dir, &mut next, 50 + round * 211);
+        } else {
+            now += Duration::from_millis(600);
+            state.tick(now);
+        }
+        render(&mut state, 80, 24);
+    }
+    assert!(
+        state.map.relayouts() >= relayouts_before + 5,
+        "the map did relayout"
+    );
+    let later = colour_map(&state);
+    for id in &folders {
+        assert_eq!(
+            first[id], later[id],
+            "folder {id:?} was recoloured by size changes alone"
+        );
+    }
+
+    // A new file type shows up in the scope: only the folder that used that hue moves, once.
+    let Fill::Hue(taken) = later[&folders[0]] else {
+        panic!("filled")
+    };
+    state.tile_colors.reserve(ROOT, [taken]);
+    nudge(&mut state, &mut now, spare, &mut next, 77);
+    render(&mut state, 80, 24);
+    let moved = colour_map(&state);
+    assert_ne!(
+        moved[&folders[0]],
+        Fill::Hue(taken),
+        "the folder left the newly reserved hue"
+    );
+    for id in folders.iter().filter(|&&f| f != folders[0]) {
+        if later[id] != Fill::Hue(taken) {
+            assert_eq!(moved[id], later[id], "{id:?} was recoloured needlessly");
+        }
+    }
+    for _ in 0..5 {
+        now += Duration::from_millis(600);
+        state.tick(now);
+        render(&mut state, 80, 24);
+    }
+    assert_eq!(colour_map(&state), moved, "it moved once and then stayed");
+}
+
+#[test]
+fn zooming_in_and_out_keeps_every_folders_colour() {
+    let (mut state, _, folders) = scope_with(&[("a.mp4", 5000)], 6);
+    for &d in &folders {
+        state.model.apply(synthetic::listing(
+            d,
+            100 + d.0,
+            vec![synthetic::entry("x.rs", Kind::File, 40)],
+        ));
+    }
+    render(&mut state, 80, 24);
+    let before = colour_map(&state);
+    // Zoom into the first folder (scope changes to its children), then back out.
+    press(&mut state, &[KeyCode::Down, KeyCode::Down, KeyCode::Enter]);
+    render(&mut state, 80, 24);
+    assert_ne!(state.map.scope(), Some(ROOT));
+    press(&mut state, &[KeyCode::Backspace]);
+    render(&mut state, 80, 24);
+    assert_eq!(state.map.scope(), Some(ROOT));
+    assert_eq!(colour_map(&state), before);
+}
+
+#[test]
+fn with_all_seven_types_present_folders_are_unfilled() {
+    let files = [
+        ("a.rs", 900),
+        ("b.bin", 800),
+        ("c.mp4", 700),
+        ("d.zip", 600),
+        ("e.png", 500),
+        ("f.pdf", 400),
+        ("g.mp3", 300),
+    ];
+    let (mut state, _, folders) = scope_with(&files, 2);
+    let buf = render(&mut state, 100, 24);
+    for id in folders {
+        let r = tile_of(&state, id);
+        assert_eq!(interior(&buf, r), Color::Reset, "folder {id:?} is unfilled");
+        for (x, y) in perimeter(r) {
+            assert_eq!(buf[(x, y)].bg, Color::Reset);
+        }
+    }
+}
+
+#[test]
+fn labels_distinguish_folders_from_files() {
+    let (mut state, files, folders) = scope_with(&[("movie.mkv", 6000)], 2);
+    let buf = render(&mut state, 100, 24);
+    let text = |r: Rect| {
+        (r.x..r.right())
+            .map(|x| buf[(x, r.y)].symbol().to_owned())
+            .collect::<String>()
+    };
+    let file_label = text(tile_of(&state, files[0]));
+    assert!(
+        file_label.contains("movie.mkv") && file_label.contains("[V]"),
+        "{file_label}"
+    );
+    for id in folders {
+        let r = tile_of(&state, id);
+        let all: String = (r.y..r.bottom())
+            .map(|y| {
+                (r.x..r.right())
+                    .map(|x| buf[(x, y)].symbol().to_owned())
+                    .collect::<String>()
+            })
+            .collect();
+        assert!(all.contains("dir"), "{all}");
+        assert!(
+            all.contains('/') && !all.contains("[C]") && !all.contains("[V]") && !all.contains('['),
+            "{all}"
+        );
+    }
+}
+
+#[test]
+fn without_colours_nothing_is_filled_but_labels_still_tell_files_from_folders() {
+    let (mut state, files, folders) = scope_with(&[("movie.mkv", 6000)], 3);
+    depth(&mut state, ColorDepth::Mono);
+    let buf = render(&mut state, 100, 24);
+    for t in state.map.tiles() {
+        for y in t.rect.y..t.rect.bottom() {
+            for x in t.rect.x..t.rect.right() {
+                assert_eq!(buf[(x, y)].bg, Color::Reset, "no fill at ({x},{y})");
+            }
+        }
+    }
+    let r = tile_of(&state, files[0]);
+    let top: String = (r.x..r.right())
+        .map(|x| buf[(x, r.y)].symbol().to_owned())
+        .collect();
+    assert!(top.contains("[V]"), "{top}");
+    let r = tile_of(&state, folders[0]);
+    let top: String = (r.x..r.right())
+        .map(|x| buf[(x, r.y)].symbol().to_owned())
+        .collect();
+    assert!(top.contains("dir0/") && !top.contains('['), "{top}");
+}
+
+#[test]
+fn the_reserved_set_counts_small_files_never_shrinks_and_is_rebuilt_on_demand() {
+    // A tiny .zip with no tile of its own still reserves bluish green.
+    let mut files = vec![("big.mp4", 100_000u64), ("tiny.zip", 1)];
+    let names: Vec<String> = (0..2).map(|i| format!("t{i}.rs")).collect();
+    files.extend(names.iter().map(|n| (n.as_str(), 1)));
+    let (mut state, _, folders) = scope_with(&files, 2);
+    let buf = render(&mut state, 80, 24);
+    assert!(
+        state.map.hidden().iter().any(|_| true),
+        "small files have no tile"
+    );
+    let green = Theme::standard().swatch(Hue::BluishGreen).unwrap().fill;
+    for id in folders {
+        assert_ne!(interior(&buf, tile_of(&state, id)), green);
+    }
+    let set = state.tile_colors.reserved[&ROOT];
+    assert!(
+        set.contains(Hue::BluishGreen) && set.contains(Hue::Orange) && set.contains(Hue::Yellow)
+    );
+
+    // Fewer files later (a delete) does not shrink it.
+    let mut after = state.tile_colors.reserve(ROOT, []);
+    assert!(after.contains(Hue::BluishGreen));
+    after = state.tile_colors.reserve(ROOT, [Hue::Blue]);
+    assert!(after.contains(Hue::BluishGreen) && after.contains(Hue::Blue));
+
+    // A rescan of the folder rebuilds it from what is there now.
+    state.tile_colors.forget_reserved(ROOT);
+    assert!(!state.tile_colors.reserved.contains_key(&ROOT));
+    state.model.apply(synthetic::listing(
+        folders_first(&state),
+        4000,
+        vec![synthetic::entry("n.rs", Kind::File, 55)],
+    ));
+    state.tick(Duration::from_secs(10));
+    render(&mut state, 80, 24);
+    let rebuilt = state.tile_colors.reserved[&ROOT];
+    assert!(rebuilt.contains(Hue::BluishGreen) && !rebuilt.contains(Hue::Blue));
+}
+
+fn folders_first(state: &AppState) -> NodeId {
+    state
+        .model
+        .children(ROOT)
+        .iter()
+        .copied()
+        .find(|&c| state.model.kind(c) == Kind::Dir)
+        .expect("a folder")
 }
 
 fn zoomed_scene() -> (AppState, Vec<NodeId>) {

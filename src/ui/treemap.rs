@@ -5,7 +5,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
-use super::theme::CategoryStyle;
+use super::tile_colors::Fill;
 use super::{copy, format, sanitize};
 use crate::app::map_state::Pane;
 use crate::app::state::AppState;
@@ -25,7 +25,7 @@ fn issue_marker(state: &AppState, id: NodeId) -> Option<&'static str> {
 }
 
 /// `name size pct% [T]` split into the words that make it up.
-fn label_words(state: &AppState, tile: &Tile, style: &CategoryStyle) -> Vec<String> {
+fn label_words(state: &AppState, tile: &Tile) -> Vec<String> {
     let map = &state.map;
     match tile.id {
         None => {
@@ -48,12 +48,17 @@ fn label_words(state: &AppState, tile: &Tile, style: &CategoryStyle) -> Vec<Stri
             if model.kind(id) == Kind::Dir {
                 name.push('/');
             }
-            vec![
+            let mut words = vec![
                 name,
                 format::size_iec(size),
                 format::percent_tile(share, only),
-                format!("[{}]", style.tag),
-            ]
+            ];
+            // Files carry their type tag; folders end in `/` and have none (UX §3.3).
+            if model.kind(id) != Kind::Dir {
+                let category = model.category_of_node(id);
+                words.push(format!("[{}]", state.theme.category_tag(category)));
+            }
+            words
         }
     }
 }
@@ -86,23 +91,19 @@ fn split_label(words: &[String], width: usize, ellipsis: &str) -> (String, Strin
 fn draw_tile(frame: &mut Frame, state: &AppState, index: usize, selected: bool) {
     let tile = &state.map.tiles()[index];
     let r = tile.rect;
-    let style = match tile.id {
-        Some(id) => state.theme.category(state.model.category_of_node(id)),
-        None => state.theme.aggregate(),
+    // An unfilled folder, or a theme without colours, is drawn on the default background.
+    let swatch = match state.map.fills().get(index) {
+        Some(Fill::Hue(hue)) => state.theme.swatch(*hue),
+        _ => None,
     };
-    let (fill, label) = if state.map.alt_shade(index) {
-        (style.alt_fill, style.alt_label)
-    } else {
-        (style.fill, style.label)
-    };
-    let mut paint = Style::new().bg(fill).fg(label);
+    let mut paint = swatch.map_or_else(Style::new, |s| Style::new().bg(s.fill).fg(s.label));
     let frame_style = if selected {
         state.theme.tile_frame_selected
     } else {
         Style::new()
     };
     let marker = tile.id.and_then(|id| issue_marker(state, id));
-    let words = label_words(state, tile, &style);
+    let words = label_words(state, tile);
     let bordered = r.width >= 2 && r.height >= 2;
     let labelled = bordered && r.width >= MIN_LABEL_WIDTH;
     if bordered {

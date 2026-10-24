@@ -11,6 +11,7 @@ pub mod skipped_view;
 pub mod status;
 pub mod tabs;
 pub mod theme;
+pub mod tile_colors;
 pub mod tree;
 pub mod treemap;
 pub mod types_view;

@@ -3,6 +3,7 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::BorderType;
 
+use super::tile_colors::Hue;
 use crate::model::Category;
 
 #[derive(Clone, Debug)]
@@ -73,6 +74,7 @@ pub struct Theme {
     pub tile_frame_selected: Style,
     pub bold: Style,
     pub dim: Style,
+    pub depth: ColorDepth,
 }
 
 impl Theme {
@@ -84,56 +86,81 @@ impl Theme {
             tile_frame_selected: Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD),
             bold: Style::new().add_modifier(Modifier::BOLD),
             dim: Style::new().add_modifier(Modifier::DIM),
+            depth: ColorDepth::TrueColor,
         }
     }
 }
 
-/// Treemap tile colors and letter tag for one category (UX §7, Okabe-Ito).
+/// How many colors the terminal gets (detection is T023's; until then the app uses truecolor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CategoryStyle {
+pub enum ColorDepth {
+    TrueColor,
+    Indexed256,
+    /// No fills at all (NO_COLOR or a monochrome terminal).
+    Mono,
+}
+
+/// Fill and label colors of one palette hue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Swatch {
     pub fill: Color,
     pub label: Color,
-    /// The alternate shade for a neighbour of the same category, with its label color.
-    pub alt_fill: Color,
-    pub alt_label: Color,
-    pub tag: char,
 }
 
 const BLACK: Color = Color::Rgb(0, 0, 0);
 const WHITE: Color = Color::Rgb(255, 255, 255);
 
+/// Truecolor RGB, xterm-256 index, and whether the label is white (UX §7).
+type PaletteEntry = (Hue, (u8, u8, u8), u8, bool);
+
+const PALETTE: [PaletteEntry; 8] = [
+    (Hue::Yellow, (0xF0, 0xE4, 0x42), 221, false),
+    (Hue::Blue, (0x00, 0x72, 0xB2), 25, true),
+    (Hue::Orange, (0xE6, 0x9F, 0x00), 178, false),
+    (Hue::BluishGreen, (0x00, 0x9E, 0x73), 35, false),
+    (Hue::SkyBlue, (0x56, 0xB4, 0xE9), 74, false),
+    (Hue::Vermillion, (0xD5, 0x5E, 0x00), 166, false),
+    (Hue::ReddishPurple, (0xCC, 0x79, 0xA7), 175, false),
+    (Hue::Grey, (0xBB, 0xBB, 0xBB), 250, false),
+];
+
 impl Theme {
-    pub fn category(&self, category: Category) -> CategoryStyle {
-        let (base, label, alt, alt_label, tag) = match category {
-            Category::Video => ((0xE6, 0x9F, 0x00), BLACK, (0xF0, 0xC5, 0x66), BLACK, 'V'),
-            Category::Image => ((0x56, 0xB4, 0xE9), BLACK, (0x9A, 0xD2, 0xF2), BLACK, 'I'),
-            Category::Archive => ((0x00, 0x9E, 0x73), BLACK, (0x66, 0xC5, 0xAB), BLACK, 'A'),
-            Category::CodeText => ((0xF0, 0xE4, 0x42), BLACK, (0xBB, 0xB2, 0x33), BLACK, 'C'),
-            Category::Binary => ((0x00, 0x72, 0xB2), WHITE, (0x00, 0x4A, 0x74), WHITE, 'B'),
-            Category::Documents => ((0xD5, 0x5E, 0x00), BLACK, (0x8A, 0x3D, 0x00), WHITE, 'D'),
-            Category::AudioOther => ((0xCC, 0x79, 0xA7), BLACK, (0xE0, 0xAF, 0xCA), BLACK, 'O'),
+    /// `None` when the theme draws no fills.
+    pub fn swatch(&self, hue: Hue) -> Option<Swatch> {
+        let &(_, (r, g, b), index, white) = PALETTE.iter().find(|(h, ..)| *h == hue)?;
+        let fill = match self.depth {
+            ColorDepth::TrueColor => Color::Rgb(r, g, b),
+            ColorDepth::Indexed256 => Color::Indexed(index),
+            ColorDepth::Mono => return None,
         };
-        CategoryStyle {
-            fill: rgb(base),
-            label,
-            alt_fill: rgb(alt),
-            alt_label,
-            tag,
+        Some(Swatch {
+            fill,
+            label: if white { WHITE } else { BLACK },
+        })
+    }
+
+    /// The fixed file-type hue of a category.
+    pub fn category_hue(&self, category: Category) -> Hue {
+        match category {
+            Category::CodeText => Hue::Yellow,
+            Category::Binary => Hue::Blue,
+            Category::Video => Hue::Orange,
+            Category::Archive => Hue::BluishGreen,
+            Category::Image => Hue::SkyBlue,
+            Category::Documents => Hue::Vermillion,
+            Category::AudioOther => Hue::ReddishPurple,
         }
     }
 
-    /// The `(+N smaller)` tile: grey, no category.
-    pub fn aggregate(&self) -> CategoryStyle {
-        CategoryStyle {
-            fill: rgb((0xBB, 0xBB, 0xBB)),
-            label: BLACK,
-            alt_fill: rgb((0x96, 0x96, 0x96)),
-            alt_label: BLACK,
-            tag: ' ',
+    pub fn category_tag(&self, category: Category) -> char {
+        match category {
+            Category::Video => 'V',
+            Category::Image => 'I',
+            Category::Archive => 'A',
+            Category::CodeText => 'C',
+            Category::Binary => 'B',
+            Category::Documents => 'D',
+            Category::AudioOther => 'O',
         }
     }
-}
-
-fn rgb((r, g, b): (u8, u8, u8)) -> Color {
-    Color::Rgb(r, g, b)
 }

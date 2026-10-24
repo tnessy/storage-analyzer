@@ -6,8 +6,10 @@ use ratatui::layout::Rect;
 
 use super::tree_state::TreeState;
 use crate::layout::{Direction, Tile, neighbor, squarify};
-use crate::model::{Category, Model};
-use crate::types::{NodeId, SizeMode};
+use crate::model::Model;
+use crate::types::{Kind, NodeId, SizeMode};
+use crate::ui::theme::Theme;
+use crate::ui::tile_colors::{Fill, TileColors, TileKind, adjacency, assign};
 
 /// While scanning, the layout is recomputed at most this often (design §5: ≤ 2 Hz).
 pub const RELAYOUT_INTERVAL: Duration = Duration::from_millis(500);
@@ -33,8 +35,8 @@ struct Cache {
     fingerprint: (u64, usize),
     at: Duration,
     tiles: Vec<Tile>,
-    /// For each tile, whether it takes its category's alternate shade.
-    alt_shade: Vec<bool>,
+    /// For each tile, its colour (UX §7, option C).
+    fills: Vec<Fill>,
     /// Items with a size that got no tile of their own, with their sizes.
     hidden: Vec<(NodeId, u64)>,
     child_count: usize,
@@ -48,13 +50,6 @@ pub struct MapState {
     pub on_aggregate: bool,
     cache: Option<Cache>,
     relayouts: u64,
-}
-
-/// Two tiles share a border segment: they touch along an edge with a non-empty overlap.
-fn shares_border(a: Rect, b: Rect) -> bool {
-    let overlap = |a0: u16, a1: u16, b0: u16, b1: u16| a1.min(b1) > a0.max(b0);
-    ((a.right() == b.x || b.right() == a.x) && overlap(a.y, a.bottom(), b.y, b.bottom()))
-        || ((a.bottom() == b.y || b.bottom() == a.y) && overlap(a.x, a.right(), b.x, b.right()))
 }
 
 /// Which folder's children the map shows (design §3.7, UX §3.3).
@@ -85,12 +80,9 @@ impl MapState {
         self.cache.as_ref().map(|c| c.key.scope)
     }
 
-    /// Whether tile `i` is drawn in the alternate shade of its category (UX §7).
-    pub fn alt_shade(&self, i: usize) -> bool {
-        self.cache
-            .as_ref()
-            .and_then(|c| c.alt_shade.get(i).copied())
-            .unwrap_or(false)
+    /// The colour of each tile, parallel to `tiles()`.
+    pub fn fills(&self) -> &[Fill] {
+        self.cache.as_ref().map_or(&[], |c| &c.fills)
     }
 
     /// Items with a size that have no tile of their own (they are in the aggregate tile, or lost).
@@ -129,6 +121,8 @@ impl MapState {
         area: Rect,
         now: Duration,
         scanning: bool,
+        theme: &Theme,
+        colors: &mut TileColors,
     ) {
         let scope = scope_of(model, tree);
         let key = Key {
@@ -156,20 +150,7 @@ impl MapState {
             .map(|&c| (c, model.size(c, mode)))
             .collect();
         let tiles = squarify(&items, area, aspect);
-        let categories: Vec<Option<Category>> = tiles
-            .iter()
-            .map(|t| t.id.map(|id| model.category_of_node(id)))
-            .collect();
-        let mut alt_shade: Vec<bool> = Vec::with_capacity(tiles.len());
-        for i in 0..tiles.len() {
-            // Alternate when an earlier base-shade tile of the same category touches this one.
-            let alt = (0..i).any(|j| {
-                categories[j] == categories[i]
-                    && !alt_shade[j]
-                    && shares_border(tiles[i].rect, tiles[j].rect)
-            });
-            alt_shade.push(alt);
-        }
+        let fills = Self::colour(model, theme, colors, scope, &items, &tiles);
         let hidden = items
             .iter()
             .filter(|&&(id, size)| size > 0 && !tiles.iter().any(|t| t.id == Some(id)))
@@ -180,12 +161,42 @@ impl MapState {
             fingerprint,
             at: now,
             tiles,
-            alt_shade,
+            fills,
             hidden,
             child_count: items.len(),
             total: items.iter().map(|&(_, s)| s).sum(),
         });
         self.relayouts += 1;
+    }
+
+    /// Colours the tiles: files by type, folders by identity, avoiding the hues of the file types
+    /// present in the scope folder.
+    fn colour(
+        model: &Model,
+        theme: &Theme,
+        colors: &mut TileColors,
+        scope: NodeId,
+        items: &[(NodeId, u64)],
+        tiles: &[Tile],
+    ) -> Vec<Fill> {
+        let file_hue = |id: NodeId| theme.category_hue(model.category_of_node(id));
+        let direct_files = items
+            .iter()
+            .filter(|&&(id, _)| model.kind(id) != Kind::Dir)
+            .map(|&(id, _)| file_hue(id));
+        let reserved = colors.reserve(scope, direct_files);
+        let kinds: Vec<TileKind> = tiles
+            .iter()
+            .map(|t| match t.id {
+                None => TileKind::Aggregate,
+                Some(id) if model.kind(id) == Kind::Dir => TileKind::Folder(id),
+                Some(id) => TileKind::File(file_hue(id)),
+            })
+            .collect();
+        let rects: Vec<Rect> = tiles.iter().map(|t| t.rect).collect();
+        let (fills, memory) = assign(&kinds, &adjacency(&rects), reserved, &colors.folder_colors);
+        colors.folder_colors = memory;
+        fills
     }
 
     /// The tile reached by moving from the highlighted one (or the largest, if none is).

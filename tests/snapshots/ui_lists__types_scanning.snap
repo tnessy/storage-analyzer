@@ -3,6 +3,6 @@ source: tests/ui_lists.rs
 expression: "part.join(\"\\n\")"
 ---
    SIZE     FILES      %  TYPE                                                  
->   39.1K         1  58.0  ▸ Video                                              
-    19.5K         1  29.0  ▸ Archives                                           
-     8.8K         2  13.0  ▸ Code & text
+>   39.1K         1  58.0     ▸ Video [V]                                       
+    19.5K         1  29.0     ▸ Archives [A]                                    
+     8.8K         2  13.0     ▸ Code & text [C]

@@ -15,6 +15,7 @@ use crate::model::Model;
 use crate::types::NodeId;
 use crate::types::{ScanState, SizeMode};
 use crate::ui::theme::{Glyphs, Theme};
+use crate::ui::tile_colors::TileColors;
 
 /// How long a transient status message stays (UX §5.2).
 pub const TRANSIENT_TTL: Duration = Duration::from_secs(5);
@@ -40,6 +41,8 @@ pub struct AppState {
     pub theme: Theme,
     pub tree: TreeState,
     pub map: MapState,
+    /// Presentation memory for the map's colours (UX §7, option C).
+    pub tile_colors: TileColors,
     pub lists: ListState,
     pub view: View,
     /// Rows of the list pane at the last `prepare_view`.
@@ -77,6 +80,7 @@ impl AppState {
             theme: Theme::standard(),
             tree: TreeState::new(),
             map: MapState::new(),
+            tile_colors: TileColors::default(),
             lists: ListState::new(),
             view: View::Tree,
             list_height: 20,
@@ -249,6 +253,8 @@ impl AppState {
             regions.map,
             self.now,
             self.is_scanning(),
+            &self.theme,
+            &mut self.tile_colors,
         );
     }
 }

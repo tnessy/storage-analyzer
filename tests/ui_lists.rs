@@ -523,3 +523,93 @@ fn snapshots_of_each_view_in_each_state() {
         insta::assert_snapshot!(format!("{view}_empty"), part.join("\n"));
     }
 }
+
+fn draw_buf(state: &mut AppState, w: u16, h: u16) -> ratatui::buffer::Buffer {
+    state.prepare_view(Rect::new(0, 0, w, h));
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+    terminal.draw(|f| ui::render(f, state)).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn swatch_cells(buf: &ratatui::buffer::Buffer, y: u16) -> [ratatui::style::Color; 2] {
+    let row: Vec<String> = (0..buf.area.width)
+        .map(|x| buf[(x, y)].symbol().to_owned())
+        .collect();
+    let twisty = row
+        .iter()
+        .position(|s| s == "▸" || s == "▾")
+        .expect("a twisty");
+    [
+        buf[(twisty as u16 - 3, y)].bg,
+        buf[(twisty as u16 - 2, y)].bg,
+    ]
+}
+
+fn row_y(buf: &ratatui::buffer::Buffer, needle: &str) -> u16 {
+    (0..buf.area.height)
+        .find(|&y| {
+            (0..buf.area.width)
+                .map(|x| buf[(x, y)].symbol().to_owned())
+                .collect::<String>()
+                .contains(needle)
+        })
+        .unwrap_or_else(|| panic!("no row with {needle}"))
+}
+
+#[test]
+fn types_rows_have_a_two_cell_swatch_in_the_category_colour_and_a_tag() {
+    use ratatui::style::Color;
+    let mut state = app_state(typed_scan());
+    press(&mut state, &[KeyCode::Char('2'), KeyCode::Down]);
+    let buf = draw_buf(&mut state, 80, 24);
+    let video = row_y(&buf, "Video");
+    let video_row: String = (0..80)
+        .map(|x| buf[(x, video)].symbol().to_owned())
+        .collect();
+    assert!(video_row.contains("[V]"), "{video_row}");
+    assert_eq!(
+        swatch_cells(&buf, video),
+        [Color::Rgb(0xE6, 0x9F, 0x00); 2],
+        "video is orange"
+    );
+    let code = row_y(&buf, "Code");
+    assert_eq!(
+        swatch_cells(&buf, code),
+        [Color::Rgb(0xF0, 0xE4, 0x42); 2],
+        "code is yellow"
+    );
+    // The selected row keeps its swatch even though the row is reversed.
+    press(&mut state, &[KeyCode::Up]);
+    let buf = draw_buf(&mut state, 80, 24);
+    assert_eq!(
+        swatch_cells(&buf, row_y(&buf, "Video")),
+        [Color::Rgb(0xE6, 0x9F, 0x00); 2]
+    );
+}
+
+#[test]
+fn without_colours_the_types_view_has_no_swatch_but_keeps_the_tag() {
+    use ratatui::style::Color;
+    let mut state = app_state(typed_scan());
+    state.theme.depth = ui::theme::ColorDepth::Mono;
+    press(&mut state, &[KeyCode::Char('2')]);
+    let buf = draw_buf(&mut state, 80, 24);
+    let y = row_y(&buf, "Video");
+    assert_eq!(swatch_cells(&buf, y), [Color::Reset; 2]);
+    let row: String = (0..80).map(|x| buf[(x, y)].symbol().to_owned()).collect();
+    assert!(row.contains("[V]"), "{row}");
+}
+
+#[test]
+fn the_help_text_for_map_colours_is_a_copy_constant() {
+    assert!(
+        ui::copy::HELP_MAP_COLOURS
+            .0
+            .contains("files are coloured by type")
+    );
+    assert!(
+        ui::copy::HELP_MAP_COLOURS
+            .1
+            .contains("never one used by a file type in the same view")
+    );
+}
