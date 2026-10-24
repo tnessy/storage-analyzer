@@ -1,0 +1,28 @@
+---
+source: tests/app_delete.rs
+expression: draw(&mut state)
+---
+╔═ Couldn't delete 4 items ═ /synthetic/root/Videos ═══════════════════════════╗
+║ permission denied (2)                                                        ║
+║   Videos/locked/x1                                                           ║
+║   Videos/locked/x2                                                           ║
+║                                                                              ║
+║ busy or in use (1)                                                           ║
+║   Videos/in-use.log                                                          ║
+║                                                                              ║
+║ other error (errno 5: input/output error) (1)                                ║
+║   Videos/odd                                                                 ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+║                                                                              ║
+╚════════════════════════════════════════════ ↑ 9 of 9 ═ j/k scroll  Esc close ╝

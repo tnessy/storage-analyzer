@@ -96,3 +96,15 @@ pub fn render(frame: &mut Frame, screen: Rect, state: &AppState) {
     frame.render_widget(Clear, rect);
     frame.render_widget(Paragraph::new(inner_lines).block(block), rect);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nineteen_entries_fit_the_twenty_row_overlay() {
+        assert_eq!(copy::HELP_LEFT.len() + copy::HELP_RIGHT.len(), 19);
+        assert!(copy::HELP_RIGHT.iter().any(|e| e.0 == "v"));
+        assert!(lines(false).len() + 2 <= 20, "{}", lines(false).len());
+    }
+}

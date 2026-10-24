@@ -15,6 +15,7 @@ pub fn text(glyphs: &Glyphs, s: &str) -> String {
         .replace('⌫', "Bksp")
         .replace('…', "...")
         .replace('·', "-")
+        .replace('≥', ">=")
 }
 
 fn fold_char(c: char) -> char {

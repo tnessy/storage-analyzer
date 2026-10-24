@@ -26,13 +26,13 @@ impl AppState {
         self.control.is_cancel_all() && self.is_scanning()
     }
 
-    fn say(&mut self, text: impl Into<String>) {
+    pub(super) fn say(&mut self, text: impl Into<String>) {
         let now = self.now;
         self.set_transient(text, now);
     }
 
     /// `name/` for a folder, as the rows show it.
-    fn folder_label(&self, id: NodeId) -> String {
+    pub(super) fn folder_label(&self, id: NodeId) -> String {
         if id == self.model.root() {
             crate::ui::root_label(self)
         } else {
@@ -49,13 +49,13 @@ impl AppState {
     }
 
     /// Sets (or, for a complete folder, ignores) the scan priority without a message.
-    fn set_priority(&mut self, id: NodeId) {
+    pub(super) fn set_priority(&mut self, id: NodeId) {
         self.control.set_focus(Some(self.model.path(id)));
         self.model.set_focus(Some(id));
         self.priority = (!self.model.is_complete(id)).then_some(id);
     }
 
-    fn clear_priority(&mut self) {
+    pub(super) fn clear_priority(&mut self) {
         self.control.set_focus(None);
         self.model.set_focus(None);
         self.priority = None;

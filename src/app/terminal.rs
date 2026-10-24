@@ -69,6 +69,14 @@ impl PanicSlot {
     pub fn take(&self) -> Vec<WorkerPanic> {
         std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
     }
+
+    /// Removes and returns the panics `wanted` accepts; the others stay for their own reader.
+    pub fn take_if(&self, wanted: impl Fn(&WorkerPanic) -> bool) -> Vec<WorkerPanic> {
+        let mut all = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let (taken, kept) = std::mem::take(&mut *all).into_iter().partition(wanted);
+        *all = kept;
+        taken
+    }
 }
 
 /// Restores the terminal before a main-thread panic message is printed, so it stays readable.

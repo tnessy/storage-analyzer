@@ -1,0 +1,28 @@
+---
+source: tests/app_delete.rs
+expression: draw(&mut state)
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped
+*  SIZE      %  OF PARENT      NAME
+>   68.0M 100.0  ██████████  ◌ /synthetic/root
+    48.6M  71.5  ███████▏      ├─▸ Videos/
+    19.1M  28.1  ██▊         ◌ ├─▸ Projects/
+   293.0K   0.4                └── notes.txt
+
+        ╔═ Quit while deleting? ═══════════════════════════════════════╗
+        ║  A delete is in progress:                                    ║
+        ║  /synthetic/root/Videos                                      ║
+        ║  12,400 of 48,212 files removed.                             ║
+        ║                                                              ║
+ Map: /s║  y  Quit anyway      [ any other key  Keep deleting ]        ║0 KiB) ─
+┌Videos/╚══════════════════════════════════════════════════════════════╝M 28%──┐
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+└───────────────────────────────────────────────────────┘└─────────────────────┘
+◌ Deleting /synthetic/root/Videos … 12,400 / 48,212 files
+ ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help

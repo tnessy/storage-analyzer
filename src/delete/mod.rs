@@ -85,8 +85,9 @@ pub fn spawn(root_fd: OwnedFd, tx: SyncSender<DeleteEvent>) -> DeleteHandle {
     })
 }
 
-/// The executor thread around any `run` function; tests inject failures through it.
-fn spawn_with<R>(tx: SyncSender<DeleteEvent>, run: R) -> DeleteHandle
+/// The executor thread around any `run` function; tests inject failures or delays through it.
+#[doc(hidden)]
+pub fn spawn_with<R>(tx: SyncSender<DeleteEvent>, run: R) -> DeleteHandle
 where
     R: Fn(&DeleteRequest, &AtomicBool, &mut dyn FnMut(Counts)) -> Outcome + Send + 'static,
 {
@@ -198,6 +199,14 @@ impl DeleteHandle {
         Ok(())
     }
 
+    /// Gives up on the executor thread without waiting for it (quitting, after the caller has
+    /// already waited): a thread stuck in a syscall ends with the process.
+    pub fn detach(mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        self.requests = None;
+        self.thread = None;
+    }
+
     /// Asks the running delete to stop after its current entry.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
@@ -215,7 +224,8 @@ impl Drop for DeleteHandle {
         self.stop.store(true, Ordering::Relaxed);
         self.requests = None;
         // Never wait for good: a thread stuck in a syscall is detached and ends with the process.
-        if self.shared.wait(EXIT_WAIT, |s| s.exited)
+        if self.thread.is_some()
+            && self.shared.wait(EXIT_WAIT, |s| s.exited)
             && let Some(thread) = self.thread.take()
         {
             // A panicked executor has nothing left to report.

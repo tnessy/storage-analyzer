@@ -144,3 +144,18 @@ The dialog showed `Space freed may be less: 1 file also has hard links outside t
 **Rulings:**
 - `spawn_with` stays `pub` + `#[doc(hidden)]`; the architect's cfg-feature suggestion is declined (see the team-lead thread). A feature-gated seam would make `cargo test --all-targets` skip or fail the delete tests.
 - **Open for UX (non-blocking):** the unfinished dialog's 60-cell action hint (`y Delete now   p Finish scan first   [ n/Esc/Enter  Cancel ]`) touches the right border at the 64-column dialog width. UX should shorten the text or confirm.
+
+## Final (2026-10-23): APPROVED and COMMITTED
+- **Architect's second review (round 3): approved.**
+  - sanitizing happens once in `stop_delete` and in `PreflightError`'s Display;
+  - the exit/quit path is correct;
+  - `delete_flow.rs` is correct (only `y` confirms, `p` only on unfinished folders, one delete at a time through the model);
+  - `spawn_with` stays `pub` + `#[doc(hidden)]`.
+- **Final verification** (Heimdall, files hash-checked unchanged between verification and staging):
+  - fmt and clippy clean;
+  - the whole suite passes twice with `--no-fail-fast`;
+  - 6/6 `--ignored` pass; release build ok;
+  - **200/200 clean runs** of the whole `app_controls` binary.
+  - It includes UX's 58-cell `DELETE_ACTIONS_UNFINISHED` and the all-dialogs width rule (`text_width = width − 6`, tested at `tests/app_delete.rs:950`).
+- The real-terminal delete was verified in round 3: decline keeps the folder, confirm deletes it, the outside hard link survives, sizes use the long format, and a hostile path is escaped in stderr.
+- **Follow-up:** T029, bidi/format characters in `sanitize` (architect).

@@ -14,7 +14,10 @@ use crate::model::Flags;
 use crate::types::{IssueKind, Kind, NodeId};
 
 const BAR_CELLS: usize = 10;
-const SIZE_WIDTH: usize = 7;
+/// The SIZE column: room for `≥999.9G`; ASCII spells the bound `>=`, one cell more (UX §7.1).
+fn size_width(glyphs: &Glyphs) -> usize {
+    if glyphs.ascii { 8 } else { 7 }
+}
 
 pub fn bar(fraction: f64, glyphs: &Glyphs) -> String {
     let eighths = (fraction.clamp(0.0, 1.0) * BAR_CELLS as f64 * 8.0).round() as usize;
@@ -29,11 +32,15 @@ pub fn bar(fraction: f64, glyphs: &Glyphs) -> String {
 
 pub fn render_column_header(frame: &mut Frame, area: Rect, state: &AppState) {
     // The focused pane's title is bold with `*`.
-    let text = if state.focus == Pane::Tree {
+    let mut text = if state.focus == Pane::Tree {
         format!("{}{}", copy::FOCUS_MARK, &copy::COLUMN_HEADER[1..])
     } else {
         copy::COLUMN_HEADER.to_owned()
     };
+    // The wider ASCII SIZE column pushes every heading one cell right.
+    if size_width(&state.glyphs) > 7 {
+        text.insert(3, ' ');
+    }
     frame.render_widget(Paragraph::new(text).style(state.theme.bold), area);
 }
 
@@ -93,7 +100,7 @@ fn size_column(state: &AppState, bytes: u64, lower_bound: bool) -> String {
     } else {
         text
     };
-    format!("{text:>SIZE_WIDTH$}")
+    format!("{text:>width$}", width = size_width(&state.glyphs))
 }
 
 /// One screen line, split so the guides can be drawn dim.
@@ -207,11 +214,12 @@ fn parent_text(state: &AppState, cursor: bool, width: usize) -> RowText {
     use std::os::unix::ffi::OsStrExt;
     let g = &state.glyphs;
     let prefix = format!(
-        "{} {:>SIZE_WIDTH$} {:>5}  {:BAR_CELLS$}    ",
+        "{} {:>size$} {:>5}  {:BAR_CELLS$}    ",
         if cursor { g.selection } else { " " },
         "",
         "",
         "",
+        size = size_width(g),
     );
     let head = format!("{}  ({} ", copy::PARENT_ROW_NAME, copy::PARENT_ROW_UP);
     let parent = state

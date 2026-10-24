@@ -7,6 +7,7 @@ use crossterm::event::{KeyEvent, KeyEventKind};
 use ratatui::layout::Rect;
 
 use super::cli::AppConfig;
+use super::delete_flow::{DeleteAborted, DeleteDone, DeletePrompt, DeleteRun};
 use super::keymap::{self, Action};
 use super::list_state::{ListState, View};
 use super::map_state::{MapState, Pane};
@@ -36,6 +37,19 @@ pub enum Dialog {
     Help,
     /// A scan worker died; the text is its panic message.
     ScanError(String),
+    /// Confirm a delete (UX §5.3).
+    Delete(DeletePrompt),
+    /// `Delete finished with errors`.
+    DeleteDone(DeleteDone),
+    /// `Not deleted`.
+    DeleteAborted(DeleteAborted),
+    /// The failed paths of the last delete; `back` is where `Esc`/`v` returns to.
+    FailedPaths {
+        scroll: usize,
+        back: Option<Box<Dialog>>,
+    },
+    /// `q` while a delete runs: only `y` quits.
+    QuitWhileDeleting,
 }
 
 /// What this session knows about a finished scan of the root (never persisted).
@@ -96,6 +110,16 @@ pub struct AppState {
     /// A rescan has started and its `Done` has not arrived yet (the model's own state stays
     /// `Done`/`Stopped` until it does).
     pub rescan_in_flight: bool,
+    /// The running delete, if any.
+    pub delete_run: Option<DeleteRun>,
+    pub delete_handle: Option<crate::delete::DeleteHandle>,
+    /// Failures of the most recent finished delete; replaced by the next one.
+    pub last_delete_failures: Vec<crate::delete::DeleteFailure>,
+    /// The target the failures belong to (for the overlay's title).
+    pub last_delete_path: std::path::PathBuf,
+    /// Set when the user quit with `y` during a delete: the line for stderr, once known.
+    /// The panic message of the delete executor, for the result dialog.
+    pub delete_panic: Option<String>,
     /// Whether the scan in progress (or last finished) is the root's own, or a subtree rescan.
     pub scan_kind: ScanKind,
     /// Elapsed time when `s` was pressed; the status shows it frozen while stopping.
@@ -145,6 +169,11 @@ impl AppState {
             control: Arc::new(ScanControl::new()),
             scan_handle: None,
             rescan_in_flight: false,
+            delete_run: None,
+            delete_handle: None,
+            last_delete_failures: Vec::new(),
+            last_delete_path: std::path::PathBuf::new(),
+            delete_panic: None,
             scan_kind: ScanKind::Root,
             stop_elapsed: None,
             queued_rescans: Vec::new(),
@@ -297,7 +326,16 @@ impl AppState {
         let action = keymap::action(key);
         let too_small = crate::ui::too_small::is_too_small(self.screen.width, self.screen.height);
         match (&self.dialog, action) {
+            (None | Some(Dialog::ScanError(_)), Action::Quit) if self.delete_run.is_some() => {
+                self.dialog = Some(Dialog::QuitWhileDeleting);
+            }
             (None | Some(Dialog::ScanError(_)), Action::Quit) => self.dialog = Some(Dialog::Quit),
+            (Some(Dialog::QuitWhileDeleting), action) => self.quit_while_deleting_key(action),
+            (Some(Dialog::Delete(_)), action) => self.delete_prompt_key(action),
+            (Some(Dialog::DeleteDone(_) | Dialog::DeleteAborted(_)), action) => {
+                self.delete_result_key(action);
+            }
+            (Some(Dialog::FailedPaths { .. }), action) => self.failed_paths_key(action),
             (Some(Dialog::Quit), Action::Quit | Action::Yes) => self.quit = true,
             (Some(Dialog::Quit), Action::No | Action::Esc | Action::Enter) => self.dialog = None,
             (Some(Dialog::ScanError(_)), _) => self.dialog = None,
@@ -310,6 +348,7 @@ impl AppState {
             (None, Action::Help) => self.dialog = Some(Dialog::Help),
             (None, Action::ToggleSize) => self.toggle_size_mode(),
             (None, Action::Stop) => self.stop_scan(),
+            (None, Action::ViewFailures) => self.press_view_failures(),
             (None, Action::View(n)) => {
                 self.view = [View::Tree, View::Types, View::Largest, View::Skipped]
                     [usize::from(n.clamp(1, 4)) - 1];
@@ -337,6 +376,9 @@ impl AppState {
             (None, Action::Skip) if self.view == View::Tree => self.press_skip(),
             (None, Action::Resume) if matches!(self.view, View::Tree | View::Skipped) => {
                 self.press_resume();
+            }
+            (None, Action::Delete) if matches!(self.view, View::Tree | View::Largest) => {
+                self.press_delete();
             }
             (None, action) if self.focus == Pane::Map => self.map_key(action),
             (None, action) if self.view != View::Tree => self.list_key(action),

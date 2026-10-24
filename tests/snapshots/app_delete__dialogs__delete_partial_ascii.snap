@@ -1,0 +1,28 @@
+---
+source: tests/app_delete.rs
+expression: draw(&mut state)
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped
+*   SIZE      %  OF PARENT      NAME
+>    68.0M 100.0  ##########  ~ /synthetic/root
+     48.6M  71.5  #######.      +-+ Videos/
+     19.1M  28.1  ###         ~ +-+ Projects/
+    293.## Delete finished with errors #################################
+        #  /synthetic/root/Videos                                      #
+        #                                                              #
+        #  Deleted 12,400 files - 310 folders - freed 28.9 GiB         #
+        #                                                              #
+        #        2  permission denied                                  #
+        #        1  busy or in use                                     #
+ Map: /s#        1  other error (errno 5: input/output error)          #0 KiB) -
++Videos/#                                                              #M 28%--+
+|       #  v  View failed paths      [ Enter  OK ]                     #       |
+|       ################################################################       |
+|                                                       ||                     |
+|                                                       ||                     |
+|                                                       ||                     |
+|                                                       ||                     |
++-------------------------------------------------------++---------------------+
+~ Scanning  00:00 elapsed
+ j/k move  h/l fold  Enter zoom  Bksp up  Tab map  d delete  p first  ? help

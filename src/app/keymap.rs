@@ -31,6 +31,8 @@ pub enum Action {
     Resume,
     /// `s`: stop the whole scan.
     Stop,
+    /// `v`: the failed paths of the last delete.
+    ViewFailures,
     /// `1`..`4`: Tree, Types, Largest, Skipped.
     View(u8),
     Other,
@@ -60,6 +62,7 @@ pub fn action(key: KeyEvent) -> Action {
         KeyCode::Char('x') => Action::Skip,
         KeyCode::Char('r') => Action::Resume,
         KeyCode::Char('s') => Action::Stop,
+        KeyCode::Char('v') => Action::ViewFailures,
         KeyCode::Char('a') => Action::ToggleSize,
         KeyCode::Char('?') => Action::Help,
         KeyCode::Tab | KeyCode::BackTab => Action::SwitchPane,

@@ -147,12 +147,13 @@ pub const HELP_LEFT: [(&str, &str, &str); 10] = [
     ("1 2 3 4", "1 2 3 4", "Tree Types Largest Skipped"),
     ("a", "a", "Disk usage / apparent"),
 ];
-pub const HELP_RIGHT: [(&str, &str, &str); 8] = [
+pub const HELP_RIGHT: [(&str, &str, &str); 9] = [
     ("d Delete", "d Delete", "Delete (asks first)"),
     ("p", "p", "Scan this folder first"),
     ("x", "x", "Skip this folder's scan"),
     ("r", "r", "Resume / rescan folder"),
     ("s", "s", "Stop the whole scan"),
+    ("v", "v", "Last delete's failures"),
     ("?", "?", "Show / hide this help"),
     ("q Ctrl-C", "q Ctrl-C", "Quit (asks first)"),
     ("Esc", "Esc", "Close dialog or help"),
@@ -175,3 +176,146 @@ pub const STILL_STOPPING: &str = "Still stopping the scan. Try again when it say
 pub const SCAN_IN_PROGRESS: &str = "Scan in progress. Press s to stop, then r to rescan.";
 pub const STOPPING: &str = "Stopping…";
 pub const FIRST_PREFIX: &str = "First:";
+
+// ---- delete (UX §5.3) ----
+
+pub const DELETE_TITLE: &str = "Delete permanently?";
+pub const DELETE_TITLE_UNFINISHED: &str = "Delete permanently? (scan of this folder not finished)";
+pub const DELETE_WARNING: &str = "This cannot be undone. Files are not moved to the trash.";
+pub const DELETE_UNFINISHED_WARNING: &str =
+    "Everything inside will be deleted, including files not counted yet.";
+pub const DELETE_LARGEST: &str = "Largest known inside:";
+pub const DELETE_NOTHING_LISTED: &str = "Nothing listed inside yet.";
+pub const DELETE_AT_LEAST: &str = "(at least; still counting)";
+pub const DELETE_ACTIONS: &str = "y  Delete             [ n / Esc / Enter  Cancel ]";
+pub const DELETE_ACTIONS_UNFINISHED: &str =
+    "y Delete now  p Finish scan first  [ n/Esc/Enter  Cancel ]";
+pub const DELETE_ACTIONS_PRIORITISING: &str = "y Delete now   [ n/Esc/Enter  Cancel ]";
+pub const DELETE_PRIORITISING: &str = "Scanning this folder first…";
+pub const DELETE_SCAN_ROOT: &str = "Can't delete the scan root.";
+pub const DELETE_ALREADY: &str = "Already being deleted.";
+
+pub fn delete_group(count: usize) -> String {
+    format!("\"{count} {AGGREGATE_WORD}\" is a group, not a file. Expand it to choose an item.")
+}
+
+pub fn delete_other_fs(path: &str) -> String {
+    format!("{path} is on another filesystem and wasn't scanned. Not deleted.")
+}
+
+pub fn delete_running(path: &str) -> String {
+    format!("One delete at a time. Wait for {path} to finish.")
+}
+
+pub fn deleting(glyph: &str, path: &str, removed: u64, total: Option<u64>) -> String {
+    let removed_text = super::format::thousands(removed);
+    match total {
+        Some(total) => format!(
+            "{glyph} Deleting {path} … {removed_text} / {} files",
+            super::format::thousands(total)
+        ),
+        None => format!("{glyph} Deleting {path} … {removed_text} files removed"),
+    }
+}
+
+pub fn deleted(path: &str, freed: &str, files: u64, more_than_counted: bool) -> String {
+    let n = super::format::thousands(files);
+    let tail = if more_than_counted {
+        format!("{n} files, more than were counted")
+    } else {
+        format!("{n} files")
+    };
+    format!("Deleted {path} · freed {freed} ({tail})")
+}
+
+pub fn items_not_deleted(n: usize) -> String {
+    format!("{n} items could not be deleted. Press v to see them.")
+}
+
+pub const NO_FAILURES: &str = "No delete failures to show.";
+
+pub const RESULT_PARTIAL_TITLE: &str = "Delete finished with errors";
+pub const RESULT_PARTIAL_ACTIONS: &str = "v  View failed paths      [ Enter  OK ]";
+pub const RESULT_ABORTED_TITLE: &str = "Not deleted";
+pub const RESULT_ABORTED_TAIL: &str = "Nothing was deleted.";
+pub const RESULT_ABORTED_ACTIONS: &str = "[ Enter  OK ]";
+pub const ABORT_CHANGED: &str = "It changed since it was scanned (it may have been replaced or moved). Rescan with r, then try again.";
+pub const ABORT_NOT_FOUND: &str = "It no longer exists.";
+pub const ABORT_MOUNT_POINT: &str = "It's a mount point (another filesystem or subvolume is mounted here), so it can't be deleted from here. Unmount it first if you want to remove it.";
+
+pub fn abort_open_failed(strerror: &str, errno: i32) -> String {
+    format!("It couldn't be opened (errno {errno}: {strerror}).")
+}
+
+pub const FAIL_PERMISSION: &str = "permission denied";
+pub const FAIL_BUSY: &str = "busy or in use";
+pub const FAIL_READ_ONLY: &str = "read-only filesystem";
+pub const FAIL_OTHER_FS: &str = "on another filesystem (not crossed)";
+
+pub fn fail_other(errno: i32, strerror: &str) -> String {
+    format!("other error (errno {errno}: {strerror})")
+}
+
+pub fn deleted_counts(files: u64, dirs: u64, freed: &str) -> String {
+    use super::format::thousands;
+    format!(
+        "Deleted {} files · {} folders · freed {freed}",
+        thousands(files),
+        thousands(dirs)
+    )
+}
+
+pub fn failed_title(n: usize, target: &str) -> String {
+    format!("Couldn't delete {n} items ═ {target}")
+}
+
+pub const FAILED_KEYS: &str = "j/k scroll  Esc close";
+
+// ---- quit while deleting ----
+
+pub const QUIT_DELETING_TITLE: &str = "Quit while deleting?";
+pub const QUIT_DELETING_BODY: &str = "A delete is in progress:";
+pub const QUIT_DELETING_ACTIONS: &str = "y  Quit anyway      [ any other key  Keep deleting ]";
+
+pub fn quit_deleting_progress(removed: u64, total: Option<u64>) -> String {
+    use super::format::thousands;
+    match total {
+        Some(total) => format!(
+            "{} of {} files removed.",
+            thousands(removed),
+            thousands(total)
+        ),
+        None => format!("{} files removed so far.", thousands(removed)),
+    }
+}
+
+/// The line printed after the terminal is restored (the command name is added by the caller).
+pub fn delete_interrupted(path: &str, removed: u64, total: Option<u64>) -> String {
+    match total {
+        Some(total) => format!("delete of {path} interrupted: {removed} of {total} files removed"),
+        None => format!("delete of {path} interrupted: {removed} files removed"),
+    }
+}
+
+pub const DELETE_HARD_LINKS_UNKNOWN: &str = "Hard links: not fully known (scan not finished).";
+
+pub fn delete_hard_links(files: u64, freed_upper: &str) -> String {
+    let (n, verb) = if files == 1 {
+        ("1 file".to_owned(), "has")
+    } else {
+        (format!("{} files", super::format::thousands(files)), "have")
+    };
+    format!(
+        "Space freed may be less: {n} also {verb} hard links outside this folder, so at most {freed_upper} is freed."
+    )
+}
+
+pub fn delete_ended_with_errors(path: &str, removed_files: u64, failed: usize) -> String {
+    format!(
+        "delete of {path} ended with errors: {removed_files} files removed, {failed} items could not be deleted"
+    )
+}
+
+pub fn delete_not_done(path: &str) -> String {
+    format!("delete of {path} was not done: nothing was deleted")
+}

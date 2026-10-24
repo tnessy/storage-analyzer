@@ -1,0 +1,28 @@
+---
+source: tests/app_delete.rs
+expression: screen
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped
+*  SIZE      %  OF PARENT      NAME
+>   68.0M 100.0  ██████████  ◌ /synthetic/root
+    48.6M  71.5  ███████▏      ├─▸ Videos/
+    19.1M  28.1  ██▊         ◌ ├─▸ Projects/
+   293.0K   0.4                └── notes.txt
+
+
+        ╔═ Quit storage-analyzer? ═════════════════════════════════════╗
+        ║  Scan results will be lost.                                  ║
+        ║                                                              ║
+        ║  q / y  Quit          [ n / Esc / Enter  Stay ]              ║
+ Map: /s╚══════════════════════════════════════════════════════════════╝0 KiB) ─
+┌Videos/ 48.6M 72%──────────────────────────────────────┐┌Projects/ 19.1M 28%──┐
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+│                                                       ││                     │
+└───────────────────────────────────────────────────────┘└─────────────────────┘
+◌ Scanning  00:00 elapsed
+ ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help

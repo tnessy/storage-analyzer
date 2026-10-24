@@ -2,6 +2,7 @@
 
 pub mod ascii;
 pub mod copy;
+pub mod delete_dialog;
 pub mod dialog;
 pub mod format;
 pub mod header;
@@ -9,6 +10,8 @@ pub mod help;
 pub mod hints;
 pub mod largest_view;
 pub mod list_common;
+pub mod quit_dialog;
+pub mod result_dialog;
 pub mod sanitize;
 pub mod skipped_view;
 pub mod status;
@@ -23,7 +26,6 @@ pub mod types_view;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
-use crate::APP_ID;
 use crate::app::list_state::View;
 use crate::app::state::{AppState, Dialog};
 
@@ -113,20 +115,7 @@ fn render_screen(frame: &mut Frame, state: &AppState) {
 
 fn render_dialogs(frame: &mut Frame, state: &AppState) {
     match &state.dialog {
-        Some(Dialog::Quit) => {
-            let lines = [
-                copy::QUIT_BODY.to_owned(),
-                String::new(),
-                copy::QUIT_ACTIONS.trim().to_owned(),
-            ];
-            dialog::render(
-                frame,
-                frame.area(),
-                &state.glyphs,
-                &format!("Quit {APP_ID}?"),
-                &lines,
-            );
-        }
+        Some(Dialog::Quit | Dialog::QuitWhileDeleting) => quit_dialog::render(frame, state),
         Some(Dialog::ScanError(message)) => {
             let mut lines = vec![copy::SCAN_ERROR_BODY.to_owned()];
             lines.extend(message.lines().map(str::to_owned));
@@ -145,6 +134,14 @@ fn render_dialogs(frame: &mut Frame, state: &AppState) {
             );
         }
         Some(Dialog::Help) => help::render(frame, frame.area(), state),
+        Some(Dialog::Delete(prompt)) => delete_dialog::render(frame, state, prompt),
+        Some(Dialog::DeleteDone(done)) => result_dialog::render_done(frame, state, done),
+        Some(Dialog::DeleteAborted(aborted)) => {
+            result_dialog::render_aborted(frame, state, aborted);
+        }
+        Some(Dialog::FailedPaths { scroll, .. }) => {
+            result_dialog::render_failed(frame, state, *scroll);
+        }
         None => {}
     }
 }

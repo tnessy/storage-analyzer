@@ -53,6 +53,11 @@ impl Gate {
         self.changed.notify_all();
     }
 
+    /// Drops the permits that are left, so the next directory read waits for the test.
+    fn hold(&self) {
+        *self.permits.lock().unwrap() = 0;
+    }
+
     fn take(&self) {
         let mut permits = self.permits.lock().unwrap();
         let started = Instant::now();
@@ -610,6 +615,8 @@ fn s_stops_through_a_frozen_stopping_line_to_stopped_and_r_on_the_root_rescans()
         "{status}"
     );
 
+    // Hold the gate: the rescan must not finish before the assertions look at it.
+    r.gate.hold();
     r.select(ROOT);
     r.key(KeyCode::Char('r'));
     assert!(r.state().rescan_in_flight);
@@ -617,6 +624,7 @@ fn s_stops_through_a_frozen_stopping_line_to_stopped_and_r_on_the_root_rescans()
         !r.state().control.is_cancel_all(),
         "the rescan cleared cancel-all"
     );
+    r.gate.grant(100);
     r.until("the rescan to finish", |r| {
         r.scan_done() && !r.state().rescan_in_flight
     });
@@ -681,10 +689,13 @@ fn r_after_a_stop_is_a_full_rescan_at_once() {
     r.key(KeyCode::Char('s'));
     r.gate.grant(100);
     r.until("Stopped", |r| r.state().model.state() == ScanState::Stopped);
+    // Hold the gate: the rescan must not finish before the assertions look at it.
+    r.gate.hold();
     r.select(a);
     r.key(KeyCode::Char('r'));
     assert!(r.state().rescan_in_flight, "{}", r.status());
     assert!(r.status().contains("Resuming a/"), "{}", r.status());
+    r.gate.grant(100);
     r.until("the rescan to finish", |r| !r.state().rescan_in_flight);
     assert!(r.state().model.is_complete(a));
 }

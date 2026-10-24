@@ -119,6 +119,15 @@ pub fn text(state: &AppState, width: usize) -> String {
     if let Some(t) = &state.transient {
         return t.text.clone();
     }
+    if let Some(run) = &state.delete_run {
+        let path = sanitize::sanitize(&run.path.display().to_string());
+        return copy::deleting(
+            state.spinner_glyph(),
+            &path,
+            run.removed_files,
+            run.total_files,
+        );
+    }
     match other_fs_hint(state) {
         Some((full, short)) => fit_hint(&|room| state_text(state, room), &full, &short, width),
         None => state_text(state, width),

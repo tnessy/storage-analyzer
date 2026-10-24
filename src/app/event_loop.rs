@@ -109,6 +109,11 @@ pub struct LoopStats {
 pub struct Services {
     pub history: Arc<dyn HistoryStore>,
     pub inodes: Box<dyn InodeSource>,
+    /// A running executor and the channel its events arrive on (none: deleting is unavailable).
+    pub delete: Option<(
+        crate::delete::DeleteHandle,
+        Receiver<crate::delete::DeleteEvent>,
+    )>,
 }
 
 /// Nothing stored, no inode counts: the defaults for tests that don't care.
@@ -137,6 +142,7 @@ impl Default for Services {
         Self {
             history: Arc::new(NoHistory),
             inodes: Box::new(NoInodes),
+            delete: None,
         }
     }
 }
@@ -161,6 +167,8 @@ pub struct App<B: Backend, E: EventSource, C: Clock> {
     /// The history file's contents, arriving from the loader thread.
     history_rx: Option<Receiver<Result<Vec<HistoryEntry>, HistoryError>>>,
     last_spinner_frame: usize,
+    /// Events from the delete executor.
+    delete_rx: Option<Receiver<crate::delete::DeleteEvent>>,
 }
 
 fn io_err<T: std::error::Error>(e: T) -> io::Error {
@@ -196,6 +204,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             services: Services::default(),
             history_rx: None,
             last_spinner_frame: 0,
+            delete_rx: None,
         }
     }
 
@@ -240,6 +249,10 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
                 first_id: NodeId::ROOT.0 + 1,
             });
         }
+        if let Some((handle, rx)) = self.services.delete.take() {
+            self.state.delete_handle = Some(handle);
+            self.delete_rx = Some(rx);
+        }
         self.start_eta_sources();
         Ok(())
     }
@@ -261,6 +274,28 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             });
         if spawned.is_ok() {
             self.history_rx = Some(rx);
+        }
+    }
+
+    fn take_delete_panic(&self) -> Option<String> {
+        let mut found = self
+            .panics
+            .take_if(|p| p.thread.as_deref() == Some(DELETE_THREAD));
+        found.pop().map(|p| p.message)
+    }
+
+    /// Applies the executor's events and keeps the open confirmation's numbers fresh.
+    fn poll_delete(&mut self) {
+        while let Some(event) = self.delete_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            // The executor's panic message is recorded before its `Finished` is sent.
+            if let Some(panic) = self.take_delete_panic() {
+                self.state.delete_panic = Some(panic);
+            }
+            self.state.on_delete_event(event);
+            self.needs_draw = true;
+        }
+        if self.state.refresh_delete_prompt() {
+            self.needs_draw = true;
         }
     }
 
@@ -306,25 +341,35 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
     }
 
     /// Runs until the user quits or a termination signal arrives.
-    pub fn run(mut self) -> io::Result<()>
+    pub fn run(mut self) -> io::Result<Option<String>>
     where
         B::Error: 'static,
     {
         self.start()?;
         while self.step()? == Flow::Continue {}
-        self.finish();
-        Ok(())
+        Ok(self.finish())
     }
 
-    /// Cancels the scan and joins its workers.
-    pub fn finish(self) {
-        let Self { rx, state, .. } = self;
+    /// The exit order (design 3.8): stop a running delete and wait for it, then cancel the
+    /// scan and join its workers. Returns the "delete interrupted" text if a delete was cut short.
+    pub fn finish(self) -> Option<String> {
+        let Self {
+            rx,
+            mut state,
+            delete_rx,
+            ..
+        } = self;
+        let interrupted = state
+            .delete_run
+            .take()
+            .and_then(|run| stop_delete(state.delete_handle.take(), delete_rx, run));
         state.control.cancel_all();
         // Workers blocked on a full channel must see it close before they are joined.
         drop(rx);
         if let Some(handle) = state.scan_handle {
             handle.shutdown();
         }
+        interrupted
     }
 
     /// One iteration: wait for input, handle all of it, drain scan messages, maybe draw.
@@ -358,6 +403,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         }
         self.state.process_events();
         self.state.poll_controls();
+        self.poll_delete();
         self.poll_history();
         self.write_history();
         if self.state.is_scanning() && !self.state.config.no_animation {
@@ -394,13 +440,12 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         // reports its own failures.
         let mut failures: Vec<String> = self
             .panics
-            .take()
-            .into_iter()
-            .filter(|p| {
+            .take_if(|p| {
                 p.thread
                     .as_deref()
                     .is_some_and(|t| t.starts_with(SCAN_THREAD_PREFIX))
             })
+            .into_iter()
             .map(|p| p.message)
             .collect();
         if self.state.scan_handle.is_some() && self.state.is_scanning() && self.rx_disconnected {
@@ -476,5 +521,62 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             self.stats.data_frames += 1;
         }
         Ok(())
+    }
+}
+
+/// How long quitting waits for the executor to finish its current entry.
+const DELETE_STOP_WAIT: Duration = Duration::from_secs(2);
+/// The name of the delete executor's thread.
+const DELETE_THREAD: &str = "delete";
+
+/// Stops the executor, drains its events while waiting, and describes how it ended: how far an
+/// interrupted delete got (from the last `Progress`, never from `Finished`), or the real outcome
+/// if the delete finished during the wait. `None` when there is nothing to report.
+fn stop_delete(
+    handle: Option<crate::delete::DeleteHandle>,
+    events: Option<Receiver<crate::delete::DeleteEvent>>,
+    run: crate::app::delete_flow::DeleteRun,
+) -> Option<String> {
+    use crate::delete::{DeleteEvent, Outcome};
+    let mut removed = run.removed_files;
+    let mut finished = None;
+    let mut drain = |events: &Option<Receiver<DeleteEvent>>| {
+        while let Some(event) = events.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            match event {
+                DeleteEvent::Progress { removed_files, .. } => {
+                    removed = removed.max(removed_files);
+                }
+                DeleteEvent::Finished(outcome) => finished = Some(outcome),
+            }
+        }
+    };
+    if let Some(handle) = handle {
+        handle.stop();
+        let started = Instant::now();
+        let mut idle = handle.wait_idle(Duration::ZERO);
+        while !idle && started.elapsed() < DELETE_STOP_WAIT {
+            drain(&events);
+            idle = handle.wait_idle(Duration::from_millis(10));
+        }
+        if idle {
+            drop(handle);
+        } else {
+            // Already waited: dropping would wait again.
+            handle.detach();
+        }
+    }
+    drain(&events);
+    let path = ui::sanitize::sanitize(&run.path.display().to_string());
+    match finished {
+        Some(Outcome::Removed(_)) => None,
+        Some(Outcome::Partial { removed, failures }) if !failures.is_empty() => Some(
+            ui::copy::delete_ended_with_errors(&path, removed.files, failures.len()),
+        ),
+        Some(Outcome::Aborted { .. }) => Some(ui::copy::delete_not_done(&path)),
+        _ => Some(ui::copy::delete_interrupted(
+            &path,
+            removed,
+            run.total_files,
+        )),
     }
 }

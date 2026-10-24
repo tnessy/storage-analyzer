@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod controls;
+pub mod delete_flow;
 pub mod event_loop;
 pub mod keymap;
 pub mod list_state;
@@ -33,6 +34,7 @@ use state::AppState;
 
 const EXIT_USAGE: u8 = 2;
 const DISK_BLOCK_BYTES: u64 = 512;
+const DELETE_EVENT_CAPACITY: usize = 64;
 
 /// The validated scan root.
 #[derive(Debug)]
@@ -50,7 +52,7 @@ pub struct PreflightError {
 
 impl fmt::Display for PreflightError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let path = self.path.display();
+        let path = crate::ui::sanitize::sanitize(&self.path.display().to_string());
         match self.errno {
             Some(Errno::NOENT) => write!(f, "{path}: no such file or directory"),
             Some(Errno::ACCESS | Errno::PERM) => write!(f, "{path}: permission denied"),
@@ -102,7 +104,7 @@ pub fn preflight(path: &Path) -> Result<Root, PreflightError> {
 }
 
 /// The real history file (used only with `--history`) and the real `statvfs`.
-fn production_services() -> Services {
+fn production_services(root: &Path) -> Services {
     let mut services = Services {
         inodes: Box::new(StatvfsInodes),
         ..Services::default()
@@ -111,7 +113,25 @@ fn production_services() -> Services {
     if let Some(dir) = dir {
         services.history = Arc::new(FileHistory::new(dir));
     }
+    services.delete = delete_executor(root);
     services
+}
+
+/// The delete executor, bound to the scan root. Without a root descriptor deleting is off.
+fn delete_executor(
+    root: &Path,
+) -> Option<(
+    crate::delete::DeleteHandle,
+    std::sync::mpsc::Receiver<crate::delete::DeleteEvent>,
+)> {
+    let fd = open(
+        root,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()?;
+    let (tx, rx) = std::sync::mpsc::sync_channel(DELETE_EVENT_CAPACITY);
+    Some((crate::delete::spawn(fd, tx), rx))
 }
 
 /// Starts the real parallel walker.
@@ -129,7 +149,10 @@ pub fn production_starter() -> ScanStarter {
     })
 }
 
-fn run_tui(config: AppConfig, root: Root) -> std::io::Result<()> {
+/// Runs the interface. The result is the text of a "delete interrupted" line, to be printed
+/// once the terminal is restored.
+fn run_tui(config: AppConfig, root: Root) -> std::io::Result<Option<String>> {
+    let services = production_services(&root.path);
     let model = Model::new(root.path, root.entry, ModelOptions { top_n: config.top });
     let mut state = AppState::new(config, model);
     // Colour depth and glyph set come from the environment, once.
@@ -153,7 +176,7 @@ fn run_tui(config: AppConfig, root: Root) -> std::io::Result<()> {
         terminate,
         panics,
     )
-    .with_services(production_services())
+    .with_services(services)
     .run()
 }
 
@@ -175,7 +198,12 @@ pub fn main_with(bin: &'static str) -> ExitCode {
         }
     };
     match run_tui(config, root) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(interrupted) => {
+            if let Some(line) = interrupted {
+                eprintln!("{bin}: {line}");
+            }
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             eprintln!("{bin}: {e}");
             ExitCode::FAILURE

@@ -27,6 +27,27 @@ fn assert_no_tui(out: &std::process::Output) {
 }
 
 #[test]
+fn a_path_with_escape_bytes_is_printed_escaped() {
+    let dir = tempfile::tempdir().unwrap();
+    let evil = dir.path().join("a\x1b[2Jb");
+    let out = run(&[evil.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(2));
+    let text = stderr(&out);
+    assert!(!text.contains('\x1b'), "{text:?}");
+    assert!(
+        text.contains("a\\x1b[2Jb: no such file or directory"),
+        "{text:?}"
+    );
+    let file = dir.path().join("f\x1b[2J");
+    std::fs::write(&file, b"x").unwrap();
+    let text = stderr(&run(&[file.to_str().unwrap()]));
+    assert!(
+        !text.contains('\x1b') && text.contains("not a directory"),
+        "{text:?}"
+    );
+}
+
+#[test]
 fn missing_path_is_reported_without_a_tui() {
     let dir = tempfile::tempdir().unwrap();
     let missing = dir.path().join("nope");

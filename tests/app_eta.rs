@@ -336,6 +336,7 @@ fn rig(flags: &[&str], store: Arc<dyn HistoryStore>, inodes: Option<u64>) -> Rig
     .with_services(Services {
         history: store,
         inodes: Box::new(FakeInodes(inodes)),
+        delete: None,
     });
     let mut rig = Rig { app, clock, tx };
     rig.app.start().unwrap();

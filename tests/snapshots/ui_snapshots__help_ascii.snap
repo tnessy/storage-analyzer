@@ -11,10 +11,10 @@ expression: "screen(&mut help, 80, 24)"
 # g G       Top / bottom                 x         Skip this folder's scan     #
 # Right l   Expand / into                r         Resume / rescan folder      #
 # Left h    Collapse / parent            s         Stop the whole scan         #
-# Enter     Zoom in, scan it first       ?         Show / hide this help       #
-# Bksp -    Up one level                 q Ctrl-C  Quit (asks first)           #
-# Tab       Switch tree / map            Esc       Close dialog or help        #
-# 1 2 3 4   Tree Types Largest Skipped                                         #
+# Enter     Zoom in, scan it first       v         Last delete's failures      #
+# Bksp -    Up one level                 ?         Show / hide this help       #
+# Tab       Switch tree / map            q Ctrl-C  Quit (asks first)           #
+# 1 2 3 4   Tree Types Largest Skipped   Esc       Close dialog or help        #
 # a         Disk usage / apparent                                              #
 #                                                                              #
 # Map: files are coloured by type; the tag shows it (e.g. [V] video). Folders  #

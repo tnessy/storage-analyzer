@@ -1,0 +1,28 @@
+---
+source: tests/app_delete.rs
+expression: screen
+---
+ storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
+ [1 Tree]  2 Types  3 Largest  4 Skipped
+*   SIZE      %  OF PARENT      NAME
+>    68.## Delete permanently? (scan of this folder not finished) ######
+     48.#  /synthetic/root/Projects                                    #
+     19.#                                                              #
+    293.#  Folder - >= 19.1 MiB (disk usage) - >= 2 files - >= 1       #
+        #  folder (at least; still counting)                           #
+        #                                                              #
+        #  Largest known inside:                                       #
+        #     19.1 MiB  repo.zip                                       #
+        #      3.9 KiB  a.rs                                           #
+        #          0 B  target/                                        #
+ Map: /s#                                                              #0 KiB) -
++Videos/#  Everything inside will be deleted, including files not      #M 28%--+
+|       #  counted yet.                                                #       |
+|       #                                                              #       |
+|       #  Hard links: not fully known (scan not finished).            #       |
+|       #                                                              #       |
+|       #  y Delete now  p Finish scan first  [ n/Esc/Enter  Cancel ]  #       |
+|       ################################################################       |
++-------------------------------------------------------++---------------------+
+~ Scanning  00:00 elapsed
+ j/k move  h/l fold  Enter zoom  Bksp up  Tab map  d delete  p first  ? help
