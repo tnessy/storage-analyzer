@@ -62,7 +62,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 ║                         ║│                      │┌ Projects/ 19.6G ┐┌ Dow…┐
 ║                         ║│                      ││ 11%             ││ 7% !│
 ╚═════════════════════════╝└──────────────────────┘└─────────────────┘└─────┘
- ◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown
+ ◌ Scanning  01:12 elapsed · 12/31 top · read  64.2 MiB/s · ETA unknown
  ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help
 ```
 
@@ -253,8 +253,8 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 |---|---|
 | Starting, no ETA source (first 2 s) | `◌ Starting…  00:00 elapsed`, with no ETA field. After 2 s it becomes the `Indeterminate` line, which says `ETA unknown`. |
 | Starting, ETA source exists (`Estimating`) | `◌ Starting…  00:00 elapsed  ETA estimating…`. `estimating…` appears **only** when a source exists (design rev 8, T013/T019), so it never promises an estimate that won't come. |
-| Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41.2k/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
-| Scanning, ETA source exists (`Eta`) | `◌ Scanning [bar] ~41%  01:12 elapsed  ETA ~01:44 (estimate, last scan)`. The source label is **only** `last scan` (history file or an earlier scan this session) or `filesystem` (inode count), per design §3.6 / ADR-010. |
+| Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41.2k/s · read  64.2 MiB/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
+| Scanning, ETA source exists (`Eta`) | `◌ Scanning [bar] ~41%  01:12 elapsed  read  64.2 MiB/s  ETA ~01:44 (estimate, last scan)`. The source label is **only** `last scan` (history file or an earlier scan this session) or `filesystem` (inode count), per design §3.6 / ADR-010. |
 | Past estimate (`OverEstimate`) | `◌ Scanning [bar] ~99%  04:02 elapsed  ETA unknown (past estimate)` |
 | With priority | `▲ First: .cache/` is placed before the scanning text. If it doesn't fit, the bar is dropped first. |
 | Done | `✓ Done in 03:51 · 1,204,331 files · 182.9 GiB · 3 skipped (press 4)`. ETA is 00:00. |
@@ -267,6 +267,22 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 | Transient message | Replaces the state text for 5 s or until the next key, then the state text returns. |
 
 - **Bar and percent:** shown **only when an ETA source exists** (`Eta`, `OverEstimate`). `~%` comes from `EtaView.fraction`, which never shows 100% before Done. In `Indeterminate`, `K of M top-level done` is a count and never a bar or `%`.
+- **Disk read speed** (new v1 scope, user request 2026-10-24). This is actual read throughput, not entries/s. The spec doesn't depend on its source; the architect chooses that.
+  - **Label and value:** `read ` followed by the value in the throughput format (§7.1), e.g. `read  64.2 MiB/s`.
+    - The value is **right-aligned in a fixed 11 cells** (the width of `999.9 MiB/s`), so the fields after it never shift as the number changes.
+    - The text is the same in ASCII mode; it uses no glyphs.
+    - I chose the word `read` over a glyph such as `⛁`: that glyph has ambiguous width, is missing from many fonts, and says less.
+  - **Where:**
+    - Indeterminate line: after the rate (entries/s), before `ETA`, joined with ` · `.
+    - Eta line: after elapsed, before `ETA`, joined with two spaces.
+  - **Refresh:** the displayed value updates **once per second**, from the bytes read over the last 1 s window or a smoothed rate (architect's choice). Updating at the 10 Hz redraw rate would make it unreadable.
+  - **Not available yet, or not at all:** the field (label and value) is **hidden**. It is never shown as `0`, `--` or `…`.
+    - It stays hidden until the first full sample window has finished, so it is absent during Starting.
+    - It is hidden for the whole scan if the source can't be read, or if the source stops working mid-scan. There is no message, because it is a secondary metric.
+    - A *measured* zero, for example a scan served from the page cache, is real and shows as `read     0 B/s`.
+  - **When it shows:** only in the Scanning states (Indeterminate, Estimating, Eta and OverEstimate).
+    - It is not shown during Starting, Stopping, Stopped, Done, or a post-Done subtree rescan (D3: the status line stays `✓ Done …`).
+    - It is not shown in the deleting status.
 - **Indeterminate fields:**
   - `K of M top-level done` is omitted until the root's first listing arrives, and when the root has no subfolders.
   - `≥N folders queued` shows `pending_dirs` (count format, §7.1) and drains to 0.
@@ -281,13 +297,20 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
   5. `folders queued` shortens to `queued`;
   6. `12 of 31` shortens to `12/31`;
   7. the queued field;
-  8. the top-level field.
+  8. `top-level done` shortens to `top` (`12/31 top`);
+  9. the read field;
+  10. the top-level field.
 
-  **Never dropped:** the state glyph and word, elapsed, and `ETA unknown`. At 80 columns with no prefix, the result is `◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown` (78 cells of text; with the 1-cell left margin shown in the §3.1 mockup, the line occupies 79 of 80 columns). With the `▲ First: …` prefix, the same order continues.
+  **Never dropped:** the state glyph and word, elapsed, and `ETA unknown`. At 80 columns with no prefix:
+  - **With the read field:** `◌ Scanning  01:12 elapsed · 12/31 top · read  64.2 MiB/s · ETA unknown` (70 cells of text; 71 with the 1-cell margin).
+  - **While the read field is hidden:** `◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown` (78 cells of text; 79 with the margin). With the read field hidden, steps 8–9 don't apply, so the line fits before reaching them. With the `▲ First: …` prefix, the same order continues.
 - **80-column drop order (Eta):**
   1. the bar shrinks from 16 to 10 cells;
   2. `elapsed` shortens to its time only, after a `·` separator;
-  3. the bar is removed.
+  3. the bar is removed;
+  4. the read field is removed.
+
+  At 80 columns with a source and the read field, the result is `◌ Scanning ~41% · 01:12  read  64.2 MiB/s  ETA ~01:44 (estimate, last scan)` (75 cells of text).
 
   **Never dropped:** `~%`, `~` before the time, `estimate`, and the source label.
 - **Elapsed:** updates at least once per second.
@@ -681,6 +704,10 @@ The Okabe-Ito set has only 7 hues, and file types use all 7. So no *global* spli
 - Map tile labels: an integer followed by `%`. Use `<1%` when the value is above 0 and would round to 0.
 - Never show `100%` on a tile unless it is the only child.
 
+**Throughput** (disk read speed):
+- The long-size format (above) per second, with a space before the unit and `/s` after it: `812 B/s`, `812.0 KiB/s`, `64.2 MiB/s`, `1.2 GiB/s`.
+- The same rounding and unit-step rules apply, so the value is at most 11 cells (`999.9 MiB/s`; `1023 B/s` is 8).
+
 **Time:**
 - Elapsed and ETA print as `MM:SS`, or `H:MM:SS` at 1 hour or more.
 - An ETA always has `~` in front.
@@ -837,3 +864,12 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
       - In the very first frame after the deletion, the body has no rows and no `No files found`, and the header contains `updating…`, with no 200 ms wait.
       - `d` shows `Nothing to delete here.`
       - If the rebuild ends with an empty list, the body shows `No files found.` and the header has no `updating`.
+23. **Disk read speed (§5.2):** feed `EtaView` states and read samples through the status renderer.
+    - **(a) Indeterminate at 80 columns,** Unicode and ASCII: the line equals `◌ Scanning  01:12 elapsed · 12/31 top · read  64.2 MiB/s · ETA unknown` (ASCII: `~ Scanning  01:12 elapsed - 12/31 top - read  64.2 MiB/s - ETA unknown`), and it is ≤ 79 cells including the margin.
+    - **(b) Eta at 80 columns:** the line equals `◌ Scanning ~41% · 01:12  read  64.2 MiB/s  ETA ~01:44 (estimate, last scan)`.
+    - **(c) Fixed width:** with values `0 B/s`, `9.8 MiB/s` and `999.9 MiB/s`, the column where `ETA` starts is identical.
+    - **(d) Hidden field:** before the first sample, and when the source reports unavailable, the line contains no `read` and no `0 B/s`, and it equals the read-free 80-column form (78 cells).
+    - **(e) Measured zero:** shows `read     0 B/s`.
+    - **(f) Other states:** Starting, Stopping, Stopped, Done and Deleting contain no `read`.
+    - **(g) Refresh:** feeding 10 samples within 1 s changes the displayed value at most once.
+    - **(h) NO_COLOR:** the read field cells have the default fg and bg, and the text is identical with and without `NO_COLOR`.
