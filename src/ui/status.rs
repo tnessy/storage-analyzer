@@ -30,6 +30,9 @@ fn with_priority(state: &AppState, width: usize) -> String {
     )
 }
 
+/// Cells reserved for the throughput value (`999.9 MiB/s`).
+const READ_VALUE_CELLS: usize = 11;
+
 /// With no source the line says nothing about ETA for the first two seconds (ADR-010).
 const ETA_TEXT_AFTER: Duration = Duration::from_secs(2);
 
@@ -43,8 +46,10 @@ fn scanning_text(state: &AppState, width: usize) -> String {
         copy::SCANNING
     };
     let totals = state.model.totals();
+    // `read_speed` is `None` outside a real first scan: never in Starting or a subtree rescan.
+    let read_bps = state.read_speed();
     match state.eta_view() {
-        EtaView::Estimating => estimating_line(glyph, word, state.elapsed),
+        EtaView::Estimating => estimating_line(glyph, word, state.elapsed, read_bps),
         EtaView::Eta {
             remaining,
             fraction,
@@ -56,6 +61,7 @@ fn scanning_text(state: &AppState, width: usize) -> String {
                 elapsed: state.elapsed,
                 fraction,
                 source,
+                read_bps,
             };
             eta_line(&p, Some(remaining), width)
         }
@@ -66,6 +72,7 @@ fn scanning_text(state: &AppState, width: usize) -> String {
                 elapsed: state.elapsed,
                 fraction: 0.99,
                 source: EtaSource::History,
+                read_bps,
             };
             eta_line(&p, None, width)
         }
@@ -96,6 +103,7 @@ fn scanning_text(state: &AppState, width: usize) -> String {
                     entries: totals.entries_seen,
                     bytes,
                     rate_eps,
+                    read_bps,
                 },
                 width,
             )
@@ -236,6 +244,8 @@ pub struct Progress {
     pub entries: u64,
     pub bytes: u64,
     pub rate_eps: Option<f64>,
+    /// Disk read speed in bytes/s; `None` hides the field.
+    pub read_bps: Option<u64>,
 }
 
 /// Which optional fields of the `Indeterminate` line are still shown (UX §5.2 drop order).
@@ -248,6 +258,9 @@ struct Shown {
     short_queued: bool,
     short_top: bool,
     queued: bool,
+    /// `12/31 top` (only used while the read field is shown).
+    tiny_top: bool,
+    read: bool,
     top: bool,
 }
 
@@ -259,13 +272,15 @@ const FULL: Shown = Shown {
     short_queued: false,
     short_top: false,
     queued: true,
+    tiny_top: false,
+    read: true,
     top: true,
 };
 
-/// The states between full and nothing optional left, in the spec's order.
-fn drop_steps() -> [Shown; 9] {
-    let mut steps = [FULL; 9];
-    let edits: [fn(&mut Shown); 8] = [
+/// The states between full and nothing optional left, in the spec's order. The read field adds
+/// one shortening (`top-level done` -> `top`) before it goes; without it the order is unchanged.
+fn drop_steps(with_read: bool) -> Vec<Shown> {
+    let mut edits: Vec<fn(&mut Shown)> = vec![
         |s| s.rate = false,
         |s| s.bytes = false,
         |s| s.entries = false,
@@ -273,11 +288,17 @@ fn drop_steps() -> [Shown; 9] {
         |s| s.short_queued = true,
         |s| s.short_top = true,
         |s| s.queued = false,
-        |s| s.top = false,
     ];
-    for (i, edit) in edits.iter().enumerate() {
-        steps[i + 1] = steps[i];
-        edit(&mut steps[i + 1]);
+    if with_read {
+        edits.push(|s| s.tiny_top = true);
+        edits.push(|s| s.read = false);
+    }
+    edits.push(|s| s.top = false);
+    let mut steps = vec![FULL];
+    for edit in edits {
+        let mut next = *steps.last().expect("steps start with FULL");
+        edit(&mut next);
+        steps.push(next);
     }
     steps
 }
@@ -295,7 +316,9 @@ fn indeterminate_with(p: &Progress, shown: Shown) -> String {
         line.push_str(&format!(" {sep} {field}"));
     };
     if let (true, Some((done, total))) = (shown.top, p.top) {
-        add(if shown.short_top {
+        add(if shown.tiny_top {
+            format!("{done}/{total} {}", copy::TOP_LEVEL_SHORT)
+        } else if shown.short_top {
             format!("{done}/{total} {}", copy::TOP_LEVEL_DONE)
         } else {
             format!("{done} {} {total} {}", copy::OF, copy::TOP_LEVEL_DONE)
@@ -326,6 +349,9 @@ fn indeterminate_with(p: &Progress, shown: Shown) -> String {
     if let (true, Some(rate)) = (shown.rate, p.rate_eps) {
         add(format!("{}/s", format::count_compact(rate as u64)));
     }
+    if let (true, Some(read)) = (shown.read, p.read_bps) {
+        add(read_field(read));
+    }
     add(if shown.qualifier {
         copy::ETA_UNKNOWN.to_owned()
     } else {
@@ -337,12 +363,23 @@ fn indeterminate_with(p: &Progress, shown: Shown) -> String {
 /// The `Indeterminate` line, dropping fields in the order of UX §5.2 until it fits `width`.
 /// The glyph and word, elapsed and `ETA unknown` are never dropped.
 pub fn indeterminate_line(p: &Progress, width: usize) -> String {
-    let steps = drop_steps();
+    let steps = drop_steps(p.read_bps.is_some());
     steps
         .iter()
         .map(|&s| indeterminate_with(p, s))
         .find(|l| format::width(l) <= width)
         .unwrap_or_else(|| indeterminate_with(p, steps[steps.len() - 1]))
+}
+
+/// `disk  64.2 MiB/s`: the label and the value right-aligned in the width of `999.9 MiB/s`, so
+/// nothing after it moves when the number changes.
+fn read_field(bytes_per_s: u64) -> String {
+    format!(
+        "{} {:>width$}",
+        copy::DISK_LABEL,
+        format::throughput(bytes_per_s),
+        width = READ_VALUE_CELLS
+    )
 }
 
 /// What the with-source lines are made of.
@@ -353,6 +390,8 @@ pub struct EtaProgress {
     pub elapsed: Duration,
     pub fraction: f32,
     pub source: EtaSource,
+    /// Disk read speed in bytes/s; `None` hides the field.
+    pub read_bps: Option<u64>,
 }
 
 fn bar(fraction: f32, cells: usize, g: &Glyphs) -> String {
@@ -390,23 +429,32 @@ pub fn eta_line(p: &EtaProgress, remaining: Option<Duration>, width: usize) -> S
     let shown = if remaining.is_none() { 1.0 } else { p.fraction };
     let elapsed = format::elapsed(p.elapsed);
     let head = format!("{} {}", p.glyph, p.word);
+    // Placed just before `ETA`, separated by two spaces; the bar goes before the read field.
+    let read = p
+        .read_bps
+        .map(|r| format!("{}  ", read_field(r)))
+        .unwrap_or_default();
     let wide = format!(
-        "{head} {} ~{pct}%  {elapsed} {}  {eta}",
+        "{head} {} ~{pct}%  {elapsed} {}  {read}{eta}",
         bar(shown, 16, &g),
         copy::ELAPSED
     );
     let narrow = format!(
-        "{head} {} ~{pct}%  {elapsed} {}  {eta}",
+        "{head} {} ~{pct}%  {elapsed} {}  {read}{eta}",
         bar(shown, 10, &g),
         copy::ELAPSED
     );
     let short = format!(
-        "{head} {} ~{pct}% {} {elapsed}  {eta}",
+        "{head} {} ~{pct}% {} {elapsed}  {read}{eta}",
         bar(shown, 10, &g),
         sep
     );
-    let bare = format!("{head} ~{pct}% {} {elapsed}  {eta}", sep);
-    let all = [wide, narrow, short, bare];
+    let bare = format!("{head} ~{pct}% {} {elapsed}  {read}{eta}", sep);
+    let no_read = format!("{head} ~{pct}% {} {elapsed}  {eta}", sep);
+    let mut all = vec![wide, narrow, short, bare];
+    if p.read_bps.is_some() {
+        all.push(no_read);
+    }
     let last = all[all.len() - 1].clone();
     all.into_iter()
         .find(|l| format::width(l) <= width)
@@ -414,9 +462,17 @@ pub fn eta_line(p: &EtaProgress, remaining: Option<Duration>, width: usize) -> S
 }
 
 /// `◌ Scanning  01:12 elapsed  ETA estimating…`: a source exists but the rate has not settled.
-pub fn estimating_line(glyph: &str, word: &str, elapsed: Duration) -> String {
+pub fn estimating_line(
+    glyph: &str,
+    word: &str,
+    elapsed: Duration,
+    read_bps: Option<u64>,
+) -> String {
+    let read = read_bps
+        .map(|r| format!("{}  ", read_field(r)))
+        .unwrap_or_default();
     format!(
-        "{glyph} {word}  {} {}  {}",
+        "{glyph} {word}  {} {}  {read}{}",
         format::elapsed(elapsed),
         copy::ELAPSED,
         copy::ETA_ESTIMATING

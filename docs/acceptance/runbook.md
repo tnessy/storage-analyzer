@@ -36,6 +36,7 @@ Terminal: at least 80×24.
 |---|---|---|
 | M1 | [M1](#m1) | MC-1 |
 | M2 | [M2](#m2) | MC-2 |
+| M2 (disk speed, new scope) | [M2](#m2) | MC-2b |
 | M3 | [M3](#m3) | MC-3 |
 | M4 | [M4](#m4) | MC-4 |
 | M5 | [M5](#m5) | MC-5 |
@@ -78,13 +79,22 @@ Run: `cargo test --test app_loop` (add `-- --nocapture` to see the `TARGET:` lin
 - Status line: `app_eta::no_source_means_no_percent_bar_or_eta_digits_at_any_width`, `app_eta::with_no_source_the_line_carries_true_quantities_and_no_estimate`, `app_eta::the_estimate_always_carries_a_tilde_and_never_reads_one_hundred_before_done`, `app_eta::the_eta_line_has_a_bar_percent_elapsed_and_a_labelled_estimate`, `app_eta::glyph_word_elapsed_and_eta_unknown_are_never_dropped`, `app_eta::at_80_columns_it_is_the_specs_example_line`, `app_eta::the_inode_count_is_the_source_when_nothing_better_exists`, `app_eta::a_finished_root_scan_becomes_the_in_session_source_for_a_rescan`
 - Elapsed and Done: `app_loop::elapsed_text_changes_in_every_second_of_a_ten_second_run`, `app_loop::elapsed_freezes_when_the_scan_finishes`, `app_loop::done_and_stopped_status_text`, `app_loop::eta_text_appears_only_after_two_seconds_without_a_source`
 
-Run: `cargo test --test app_eta`, `cargo test --test app_loop`, `cargo test --lib -- eta::`.
+- Disk speed (`disk  64.2 MiB/s`, UX §5.2 and check 23): `app_eta::check_23a_the_first_scan_line_at_80_columns_in_unicode_and_ascii`, `app_eta::check_23b_the_eta_line_at_80_columns`, `app_eta::check_23c_eta_starts_in_the_same_column_whatever_the_read_value`, `app_eta::check_23d_a_missing_reading_leaves_the_old_line_exactly`, `app_eta::check_23e_a_measured_zero_shows`, `app_eta::the_read_field_drops_after_the_queued_count_and_before_the_top_level_count`, `app_eta::with_an_eta_the_bar_goes_before_the_read_field_and_the_read_field_goes_last`, `ui_status::hidden_until_the_first_full_second_then_shown`, `ui_status::a_silent_source_hides_the_field_and_it_comes_back_after_a_full_second`, `ui_status::no_source_means_no_field_and_no_fake_zero`, `ui_status::a_measured_zero_shows_as_zero`, `ui_status::the_value_changes_at_most_once_per_second_and_the_source_is_asked_about_once_per_second`, `ui_status::the_field_never_shows_outside_the_scanning_states`, `ui_status::the_field_has_no_colour_of_its_own`, `lib::diskio::meter::tests::nothing_until_the_first_full_window_then_bytes_per_second`, `lib::diskio::meter::tests::a_counter_going_backwards_gives_no_value_that_second_and_values_resume`, `lib::diskio::meter::tests::a_missing_reading_gives_no_value_that_second_and_values_resume`, `lib::diskio::meter::tests::reset_starts_over`, `lib::ui::format::tests::throughput_is_the_long_size_per_second`
+
+Run: `cargo test --test app_eta`, `cargo test --test ui_status`, `cargo test --test app_loop`, `cargo test --lib -- eta:: diskio:: throughput`.
 
 **MC-2 (manual)**
 1. `cargo run --release -- /usr`. With no history and no source (on btrfs there is no inode count) the line shows `Scanning`, an elapsed clock that moves every second, counts, a rate and `ETA unknown`; no `%`, no bar.
 2. Let it finish: the line says `Done` with the total time.
 3. Press `r` on the root after `Done`: this second scan in the same session shows an estimate marked `~` and `estimate`, with the source `last scan`, reaching 00:00 at Done.
 4. Optional: `cargo run --release -- --history /usr` twice; the second run shows an estimate from the first one.
+
+**MC-2b (manual, disk speed; needs the real source of T036b, until then the field stays hidden by design)**
+1. `cargo run --release -- $HOME` (or any large directory that is not fully in the page cache).
+2. About 2 seconds into the scan the line gains `disk  NN.N MiB/s` just before `ETA`, and the number changes about once a second; the `ETA` text does not move sideways as the number changes.
+3. Press `s`: the field disappears from the `Stopping…` line. Let another scan finish: it is gone at `Done`.
+4. Re-scan a directory that was just scanned (cached): `disk       0 B/s` is a real value and shows; it is never replaced by `--`.
+5. Narrow the terminal toward 70 columns: the field is dropped late (after the queued count and `top-level done` shortening), never before `ETA`.
 
 **Known limit (ADR-010, M2 revision):** on a first scan with no source (for example btrfs, history off) the answer is `ETA unknown`; this is by design. The amendment to M2 is with the project owner.
 

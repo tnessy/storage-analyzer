@@ -45,6 +45,11 @@ pub fn size_iec_long(bytes: u64) -> String {
     }
 }
 
+/// `812 B/s`, `812.0 KiB/s`, `64.2 MiB/s`: the long size with `/s`.
+pub fn throughput(bytes_per_s: u64) -> String {
+    format!("{}/s", size_iec_long(bytes_per_s))
+}
+
 /// Base 1000, three significant digits: `812`, `12.4k`, `1.24M`.
 pub fn count_compact(n: u64) -> String {
     const SUFFIXES: [&str; 4] = ["", "k", "M", "G"];
@@ -191,6 +196,17 @@ pub fn truncate(s: &str, max: usize, ellipsis: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn throughput_is_the_long_size_per_second() {
+        assert_eq!(super::throughput(0), "0 B/s");
+        assert_eq!(super::throughput(812), "812 B/s");
+        assert_eq!(super::throughput(812 * 1024), "812.0 KiB/s");
+        assert_eq!(super::throughput(67_318_580), "64.2 MiB/s");
+        // The widest value fits the 11 cells reserved for it.
+        assert_eq!(super::width(&super::throughput(1_048_470_000)), 11);
+        assert!(super::width(&super::throughput(u64::MAX)) <= 12);
+    }
+
     #[test]
     fn middle_truncation_keeps_both_ends_within_the_limit() {
         let cut = super::truncate_middle("abcdefghijklmnopqrstuvwxyz/", 15, "…");

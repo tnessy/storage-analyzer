@@ -109,6 +109,8 @@ pub struct LoopStats {
 pub struct Services {
     pub history: Arc<dyn HistoryStore>,
     pub inodes: Box<dyn InodeSource>,
+    /// Where the disk read speed comes from (`NoSource`: the field stays hidden).
+    pub read_bytes: Box<dyn crate::diskio::ReadBytesSource>,
     /// A running executor and the channel its events arrive on (none: deleting is unavailable).
     pub delete: Option<(
         crate::delete::DeleteHandle,
@@ -142,6 +144,7 @@ impl Default for Services {
         Self {
             history: Arc::new(NoHistory),
             inodes: Box::new(NoInodes),
+            read_bytes: Box::new(crate::diskio::NoSource),
             delete: None,
         }
     }
@@ -410,6 +413,12 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         self.step_top_rebuild();
         let now = self.clock.now();
         if self.state.tick(now) {
+            self.needs_draw = true;
+        }
+        if self
+            .state
+            .sample_read_speed(now, self.services.read_bytes.as_mut())
+        {
             self.needs_draw = true;
         }
         self.state.process_events();

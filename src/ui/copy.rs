@@ -24,6 +24,9 @@ pub const ESTIMATE_WORD: &str = "estimate";
 pub const SOURCE_LAST_SCAN: &str = "last scan";
 pub const SOURCE_FILESYSTEM: &str = "filesystem";
 pub const OF: &str = "of";
+pub const DISK_LABEL: &str = "disk";
+/// `12/31 top`: the last shortening of the top-level count.
+pub const TOP_LEVEL_SHORT: &str = "top";
 pub const TOP_LEVEL_DONE: &str = "top-level done";
 pub const QUEUED: &str = "queued";
 pub const FOLDERS_QUEUED: &str = "folders queued";

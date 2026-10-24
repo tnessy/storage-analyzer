@@ -122,6 +122,10 @@ pub struct AppState {
     /// Set when the user quit with `y` during a delete: the line for stderr, once known.
     /// The panic message of the delete executor, for the result dialog.
     pub delete_panic: Option<String>,
+    /// Disk read speed, one value a second (hidden until there is a reading).
+    pub read_meter: crate::diskio::ReadRateMeter,
+    /// When the source was last asked (at most once a second).
+    pub read_sampled_at: Option<Duration>,
     /// A finished delete whose removal from the model waits for the next loop step.
     pub pending_delete: Option<crate::delete::DeleteEvent>,
     /// When the pending top-N rebuild was first seen (for the 200 ms delay of `updating…`).
@@ -180,6 +184,8 @@ impl AppState {
             last_delete_failures: Vec::new(),
             last_delete_path: std::path::PathBuf::new(),
             delete_panic: None,
+            read_meter: crate::diskio::ReadRateMeter::new(),
+            read_sampled_at: None,
             pending_delete: None,
             top_pending_since: None,
             scan_kind: ScanKind::Root,
@@ -297,6 +303,38 @@ impl AppState {
             text: text.into(),
             until: now + TRANSIENT_TTL,
         });
+    }
+
+    /// Asks the byte source at most once a second while a scan runs and feeds the meter.
+    /// Returns whether the shown rate changed.
+    pub fn sample_read_speed(
+        &mut self,
+        now: Duration,
+        source: &mut dyn crate::diskio::ReadBytesSource,
+    ) -> bool {
+        const EVERY: Duration = Duration::from_secs(1);
+        if !self.is_scanning() {
+            return false;
+        }
+        if self
+            .read_sampled_at
+            .is_some_and(|t| now.saturating_sub(t) < EVERY)
+        {
+            return false;
+        }
+        self.read_sampled_at = Some(now);
+        let before = self.read_meter.rate();
+        self.read_meter.sample(now, source.read_bytes());
+        self.read_meter.rate() != before
+    }
+
+    /// The read speed to show: only while the scan is really `Scanning`.
+    pub fn read_speed(&self) -> Option<u64> {
+        // A subtree rescan after Done is not a scan of the whole root (the line stays `Done`).
+        let subtree_rescan = self.rescan_in_flight && self.scan_kind == ScanKind::Subtree;
+        (self.phase() == ScanState::Scanning && !subtree_rescan)
+            .then(|| self.read_meter.rate())
+            .flatten()
     }
 
     /// Advances elapsed time and expires the transient message.

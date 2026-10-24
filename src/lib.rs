@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod delete;
+pub mod diskio;
 pub mod eta;
 pub mod history;
 pub mod layout;

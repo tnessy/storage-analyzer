@@ -18,6 +18,7 @@ fn spec_progress() -> Progress {
         entries: 1_240_000,
         bytes: (96.1 * 1024f64.powi(3)) as u64,
         rate_eps: Some(41_200.0),
+        read_bps: None,
     }
 }
 
@@ -122,6 +123,7 @@ fn eta_progress(fraction: f32, source: EtaSource) -> EtaProgress {
         elapsed: Duration::from_secs(72),
         fraction,
         source,
+        read_bps: None,
     }
 }
 
@@ -190,11 +192,11 @@ fn past_estimate_and_estimating_lines_follow_the_spec() {
         "◌ Scanning ████████████████ ~99%  04:02 elapsed  ETA unknown (past estimate)"
     );
     assert_eq!(
-        estimating_line("◌", "Scanning", Duration::from_secs(72)),
+        estimating_line("◌", "Scanning", Duration::from_secs(72), None),
         "◌ Scanning  01:12 elapsed  ETA estimating…"
     );
     assert_eq!(
-        estimating_line("◌", "Starting…", Duration::ZERO),
+        estimating_line("◌", "Starting…", Duration::ZERO, None),
         "◌ Starting…  00:00 elapsed  ETA estimating…"
     );
 }
@@ -336,6 +338,7 @@ fn rig(flags: &[&str], store: Arc<dyn HistoryStore>, inodes: Option<u64>) -> Rig
     .with_services(Services {
         history: store,
         inodes: Box::new(FakeInodes(inodes)),
+        read_bytes: Box::new(storage_analyzer::diskio::NoSource),
         delete: None,
     });
     let mut rig = Rig { app, clock, tx };
@@ -782,4 +785,150 @@ fn the_spinner_moves_at_most_ten_times_a_second_and_stands_still_without_animati
     assert!(changes <= 20, "at most 10 fps over 2 s: {changes}");
     let still = glyph_over_time(&["--no-animation"]);
     assert!(still.iter().all(|&c| c == '◌'), "{still:?}");
+}
+
+// ---- disk read speed (UX §5.2, check 23) ----
+
+/// 64.2 MiB/s
+const READ_64_2: u64 = 67_318_579;
+
+fn first_scan(read: Option<u64>) -> Progress {
+    Progress {
+        read_bps: read,
+        ..spec_progress()
+    }
+}
+
+fn eta_with_read(read: Option<u64>) -> EtaProgress {
+    EtaProgress {
+        read_bps: read,
+        ..eta_progress(0.41, EtaSource::SessionPrevious)
+    }
+}
+
+fn ascii(line: &str) -> String {
+    storage_analyzer::ui::ascii::text(&storage_analyzer::ui::theme::Glyphs::ascii(), line)
+        .replace('◌', "~")
+}
+
+#[test]
+fn check_23a_the_first_scan_line_at_80_columns_in_unicode_and_ascii() {
+    let line = indeterminate_line(&first_scan(Some(READ_64_2)), 80);
+    assert_eq!(
+        line,
+        "◌ Scanning  01:12 elapsed · 12/31 top · disk  64.2 MiB/s · ETA unknown"
+    );
+    assert_eq!(format::width(&line), 70);
+    assert_eq!(
+        ascii(&line),
+        "~ Scanning  01:12 elapsed - 12/31 top - disk  64.2 MiB/s - ETA unknown"
+    );
+}
+
+#[test]
+fn check_23b_the_eta_line_at_80_columns() {
+    let line = eta_line(
+        &eta_with_read(Some(READ_64_2)),
+        Some(Duration::from_secs(104)),
+        80,
+    );
+    assert_eq!(
+        line,
+        "◌ Scanning ~41% · 01:12  disk  64.2 MiB/s  ETA ~01:44 (estimate, last scan)"
+    );
+    assert_eq!(format::width(&line), 75);
+}
+
+#[test]
+fn check_23c_eta_starts_in_the_same_column_whatever_the_read_value() {
+    let eta_col = |line: &str| line[..line.find("ETA").unwrap()].chars().count();
+    for width in [80, 400] {
+        let first: Vec<usize> = [0, 812, 9_900_000, 1_048_470_000]
+            .into_iter()
+            .map(|v| eta_col(&indeterminate_line(&first_scan(Some(v)), width)))
+            .collect();
+        assert!(first.windows(2).all(|w| w[0] == w[1]), "{first:?}");
+        let with_eta: Vec<usize> = [0, 812, 9_900_000, 1_048_470_000]
+            .into_iter()
+            .map(|v| {
+                eta_col(&eta_line(
+                    &eta_with_read(Some(v)),
+                    Some(Duration::from_secs(104)),
+                    width,
+                ))
+            })
+            .collect();
+        assert!(with_eta.windows(2).all(|w| w[0] == w[1]), "{with_eta:?}");
+    }
+}
+
+#[test]
+fn check_23d_a_missing_reading_leaves_the_old_line_exactly() {
+    let line = indeterminate_line(&first_scan(None), 80);
+    assert_eq!(
+        line,
+        "◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown"
+    );
+    assert_eq!(format::width(&line), 78);
+    assert!(!line.contains("disk") && !line.contains("B/s"));
+    let eta = eta_line(&eta_with_read(None), Some(Duration::from_secs(104)), 400);
+    assert!(!eta.contains("disk"), "{eta}");
+    assert!(
+        eta.ends_with("~41%  01:12 elapsed  ETA ~01:44 (estimate, last scan)"),
+        "{eta}"
+    );
+}
+
+#[test]
+/// UX §5.2 prints `disk     0 B/s` (5 spaces); with the value right-aligned in 11 cells, as
+/// check 23(c) needs, it is 7. Reported to Heimdall.
+fn check_23e_a_measured_zero_shows() {
+    let line = indeterminate_line(&first_scan(Some(0)), 400);
+    assert!(line.contains(" · disk       0 B/s · ETA unknown"), "{line}");
+    let eta = eta_line(&eta_with_read(Some(0)), Some(Duration::from_secs(104)), 400);
+    assert!(
+        eta.contains("elapsed  disk       0 B/s  ETA ~01:44"),
+        "{eta}"
+    );
+}
+
+#[test]
+fn the_read_field_drops_after_the_queued_count_and_before_the_top_level_count() {
+    let p = first_scan(Some(READ_64_2));
+    let line = |w| indeterminate_line(&p, w);
+    // Wide: everything, disk field after the rate and before ETA.
+    assert!(line(400).contains("41.2k/s · disk  64.2 MiB/s · ETA unknown (no previous scan)"));
+    // Steps 1-7 as before (the disk field stays); then `top-level done` shortens to `top`.
+    assert_eq!(
+        line(72),
+        "◌ Scanning  01:12 elapsed · 12/31 top · disk  64.2 MiB/s · ETA unknown"
+    );
+    // Step 9: the disk field goes, the top-level count stays...
+    assert_eq!(
+        line(69),
+        "◌ Scanning  01:12 elapsed · 12/31 top · ETA unknown"
+    );
+    // ...step 10: the top-level field goes last.
+    assert_eq!(line(40), "◌ Scanning  01:12 elapsed · ETA unknown");
+}
+
+#[test]
+fn with_an_eta_the_bar_goes_before_the_read_field_and_the_read_field_goes_last() {
+    let p = eta_with_read(Some(READ_64_2));
+    let remaining = Some(Duration::from_secs(104));
+    let wide = eta_line(&p, remaining, 400);
+    assert!(
+        wide.contains("█") && wide.contains("elapsed  disk  64.2 MiB/s  ETA"),
+        "{wide}"
+    );
+    let bare = eta_line(&p, remaining, 75);
+    assert_eq!(
+        bare,
+        "◌ Scanning ~41% · 01:12  disk  64.2 MiB/s  ETA ~01:44 (estimate, last scan)"
+    );
+    let last = eta_line(&p, remaining, 74);
+    assert_eq!(
+        last,
+        "◌ Scanning ~41% · 01:12  ETA ~01:44 (estimate, last scan)"
+    );
 }

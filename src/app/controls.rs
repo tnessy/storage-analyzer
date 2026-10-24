@@ -275,6 +275,8 @@ impl AppState {
 
     /// A rescan of the root (or a subtree) starts a fresh clock, rate and ETA.
     fn begin_scan_timer(&mut self, root: bool) {
+        self.read_meter.reset();
+        self.read_sampled_at = None;
         self.rescan_in_flight = true;
         self.scan_kind = if root {
             ScanKind::Root
