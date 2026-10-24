@@ -46,3 +46,6 @@ Task-specific commands (single test, ignored or privileged tests) are in each br
 - The output of the five commands above, run fresh.
 - Any `TARGET:` lines you measured.
 - Anything you couldn't do, and any questions.
+
+## Red-first evidence (rule tightened 2026-10-23, after T004, T015 and T026)
+If some production code in your hand-off was written before its tests, say so, and provide **one targeted mutation per acceptance criterion** in that code: the mutation, the test that failed, and its output. Without that, the verdict is **changes requested**. Heimdall re-runs a sample of the mutations.

@@ -88,3 +88,6 @@ The rule lives in **one place, the model**, and T020 only executes it:
 - `recompute_top()` rebuilds only the top lists. **Subtracting ext totals for removed nodes is your job:** add a small `Indexes::remove(name, disk, apparent)`, and use it in `remove_subtree`, which T011 reuses.
 - `Identity` changing a file's size: the top lists may hold a stale entry, so call `recompute_top()`, or re-offer the node. Test it.
 - Prune `dir_categories` entries for nodes that become `REMOVED`.
+
+## Note from the T026 review
+The map no longer uses `category_of_node` for **folders** (option C colours folders by identity). Remove the folder branch of `Model::category_of_node` and the `dir_categories` cache: they have no caller (check with `grep`). Keep the file branch only if something still calls it (the Types view and map tags use `category_of(ext_of(name))`); otherwise remove `category_of_node` entirely and tell Heimdall. Drop the `dir_categories` pruning item from the T005 note.
