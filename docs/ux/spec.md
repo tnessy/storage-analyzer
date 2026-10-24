@@ -280,7 +280,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
   - **Not available yet, or not at all:** the field (label and value) is **hidden**. It is never shown as `0`, `--` or `…`.
     - It stays hidden until the first full sample window has finished, so it is absent during Starting.
     - It is hidden for the whole scan if the source can't be read, or if the source stops working mid-scan. There is no message, because it is a secondary metric.
-    - A *measured* zero, for example a scan served from the page cache, is real and shows as `disk     0 B/s`.
+    - A *measured* zero, for example a scan served from the page cache, is real and shows as `disk       0 B/s`.
   - **When it shows:** only in the Scanning states (Indeterminate, Estimating, Eta and OverEstimate).
     - It is not shown during Starting, Stopping, Stopped, Done, or a post-Done subtree rescan (D3: the status line stays `✓ Done …`).
     - It is not shown in the deleting status.
@@ -872,7 +872,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
     - **(b) Eta at 80 columns:** the line equals `◌ Scanning ~41% · 01:12  disk  64.2 MiB/s  ETA ~01:44 (estimate, last scan)`.
     - **(c) Fixed width:** with values `0 B/s`, `9.8 MiB/s` and `999.9 MiB/s`, the column where `ETA` starts is identical.
     - **(d) Hidden field:** before the first sample, and when the source reports unavailable, the line contains no `disk` and no `0 B/s`, and it equals the 80-column form without the disk field (78 cells).
-    - **(e) Measured zero:** shows `disk     0 B/s`.
+    - **(e) Measured zero:** shows `disk       0 B/s`.
     - **(f) Other states:** Starting, Stopping, Stopped, Done and Deleting contain no `disk`.
     - **(g) Refresh:** feeding 10 samples within 1 s changes the displayed value at most once.
     - **(h) NO_COLOR:** the disk field cells have the default fg and bg, and the text is identical with and without `NO_COLOR`.
