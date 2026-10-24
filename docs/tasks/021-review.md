@@ -125,3 +125,22 @@ The dialog showed `Space freed may be less: 1 file also has hard links outside t
 - the architect re-reviews `delete_flow.rs` and the quit/signal paths;
 - I re-run the app_controls loop and the pty delete;
 - then I commit T021.
+
+## Round 3 re-review (Heimdall, 2026-10-23): APPROVED by Heimdall. Commit waits only for the architect's re-review.
+**Fresh evidence** (clean worktree: HEAD plus the T021 files; engineer-1's in-progress `spikes/r1-memory/` excluded):
+- fmt ok, whole-tree clippy clean;
+- the whole suite passes twice with `--no-fail-fast`;
+- all 6 `--ignored` mount tests pass; release build ok;
+- **200 consecutive runs of the whole `app_controls` binary: 0 failures.** Before the `Gate::hold()` fix it was 3–11 per 100.
+
+**Real terminal** (release build, scratch tree):
+- `j d n` declined; `d y` deleted `victim/`, and `keep/link_to_a.txt` still reads `hi`;
+- the dialog shows the long sizes `Folder · 2.9 MiB (disk usage)` and `… so at most 2.9 MiB is freed.` (R3-2 ✓).
+
+**The architect's sanitize fix:** a path containing ESC in a pre-TUI error prints the literal text `\x1b[2J` and no raw ESC byte (`od -c` checked).
+
+**R3-3:** the dialog's own wrapping keeps the 2-cell margin; list items keep their indent and truncate. The test was reported red first.
+
+**Rulings:**
+- `spawn_with` stays `pub` + `#[doc(hidden)]`; the architect's cfg-feature suggestion is declined (see the team-lead thread). A feature-gated seam would make `cargo test --all-targets` skip or fail the delete tests.
+- **Open for UX (non-blocking):** the unfinished dialog's 60-cell action hint (`y Delete now   p Finish scan first   [ n/Esc/Enter  Cancel ]`) touches the right border at the 64-column dialog width. UX should shorten the text or confirm.
