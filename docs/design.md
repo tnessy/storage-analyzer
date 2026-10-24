@@ -188,7 +188,7 @@ Indexes, all updated in `apply`:
     - The Largest view shows the first N.
   - **A delete that removes no list member:** costs nothing extra.
   - **A rebuild runs only if a removal leaves fewer than N entries:**
-    - `Model::top_rebuild_pending() -> bool`.
+    - `Model::top_updating() -> bool`.
     - `Model::step_top_rebuild(budget: Duration)`: scans node ids from a cursor into a scratch top-`N+R` set (ordered by `(size, NodeId)`, removable), and stops when the budget is spent.
   - **Who drives it:** the app calls `step_top_rebuild(5 ms)` once per loop iteration after the message drain. While a rebuild is pending, the loop does not block on input longer than 10 ms, as during a scan. When the cursor reaches the end, the scratch set replaces the live lists.
   - **Mid-rebuild events:**
@@ -581,6 +581,7 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 | Threads | `min(nproc, 8)` walkers + 1 delete + main | gdu/dust precedent. T009 (warm): wall time flat from 4 to 16 threads; above 4 the single apply thread is the limit and backpressure engages (by design; blocked workers cost 1–3 % of a core). Kept at 8 until a cold-cache run decides |
 | Max work per apply step | No single `apply` call > ~5 ms: listings split at 8,192 entries; node arrays never copy-grow on the main thread (chunked storage, if T009's growth hypothesis is confirmed) | T009: tick max 118–147 ms vs 50 ms input target |
 | Post-delete index refresh | Top-N with a reserve; a resumable rebuild only when the reserve runs out, ≤ 5 ms per loop iteration (§3.4 "Top-N maintenance") | T009: 0.4–0.6 s at 20 M entries |
+| Model removal of a deleted folder | One step, O(subtree) (about 80 ms measured on `~/workspace`, 316 GB). **Accepted for v1:** it happens once per confirmed delete, at the end of a delete that itself takes seconds. Mitigation: draw the frame showing the delete's outcome before applying the removal. Backlog T030c (incremental removal) if a real delete measures > 250 ms | T030 |
 | Process memory | Track RSS, not only model bytes. T009: 4.3 GiB process vs ~2.4–2.9 GiB model at 19.85 M entries (≥ 2 threads); diagnosis pending | T009 |
 | Throughput | No target in v1 | brief |
 | Cost | Local only, $0 | — |

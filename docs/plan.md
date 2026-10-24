@@ -65,7 +65,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T028b | e1 | rescan_many + cancel flag captured under lock (architect low findings on T028) | T028 |
 | T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
 | T034 | e2 | Acceptance runbook for M1–M12 (docs only) | — |
-| T030c | e1 | T030 follow-ups: btrfs fixture sync; remove the incremental switch; (maybe) incremental `remove_subtree` | T030, T030b |
+| T030c | e1 | T030 follow-ups: `sync_fs` in `m8_tree`; remove the incremental switch; log `~/workspace` entry count | T030, T030b |
 | T035 | e2 | End-to-end test: a real file name with ESC/bidi characters is never rendered raw | T029, T030b |
 | T030b | e2 | Wire the stepped top-N rebuild into the loop + Largest `updating…` (UX check 22) | T030 round 2, T029 |
 | T030 | e1 | Tick-spike diagnosis + split listings over 8,192 entries (`last` flag); chunked arrays only if growth is confirmed | T009 |
@@ -148,5 +148,6 @@ The design left these open. I made them so the briefs are complete. Each one has
 | O2 | Types side panel ≥120 columns: build it or drop it | user via project-owner |
 | O3 | Do any measured targets become gates? (50 ms p95, 120 B/entry, thread default) | user via project-owner |
 | O8 | Backlog: after `Aborted(MountPoint)`, refuse the next delete of that node straight away (architect F2 on T011). Do it in the app (remember the refusal) or in the walker's identity path, not as `OTHER_FS` on a counted node | architect / project-owner |
+| O9 | Backlog: incremental `remove_subtree` (~80 ms per large delete accepted for v1; revisit if a real delete exceeds 250 ms) | architect |
 | O6 | Brief M7 update for `≥` lower bounds (design §6 gap 4) | project-owner |
 | ~~O7~~ | **Closed (architect, design §3.11):** `r` on a still-scanning folder = `p` plus resume of the skipped folders inside it. No per-rescan generation (revisit only for v2 file watching). The rule lives in `Model::rescan_plan` (T012), and T020 executes it. The status text is pending from UX | — |

@@ -24,3 +24,6 @@
 `src/app/event_loop.rs`, `src/app/state.rs`, `src/ui/largest_view.rs`, `src/app/list_state.rs`, `src/ui/copy.rs`, `tests/ui_lists.rs`, `tests/app_loop.rs`, and the affected snapshots.
 
 **Also:** turn on `set_incremental_top(true)` at startup. **Add the check 22 tests to `docs/acceptance/runbook.md`** (it lists check 22 as a gap until this task).
+
+**Also (architect mitigation for the accepted ~80 ms `remove_subtree` step):** when a delete finishes, **draw the frame that shows its outcome** (the result message, or the Partial/Aborted dialog) **before** calling `Model::apply_delete`, which removes the subtree. The pause then comes after the user already sees what happened. Do it in the event loop's `DeleteEvent::Finished` handling.
+- **Test:** with a model hook that records when the removal runs, the outcome frame is drawn first. The model-applied totals still update on the next frame.

@@ -92,3 +92,8 @@ Without that, every large delete would show `updating…` for about 1.5 s. Archi
 **New finding for the architect:** removing a very large folder from the model is **one ~80 ms step**, above the 50 ms target, once per confirmed delete (`remove_subtree` on `~/workspace`, 316 GB). Should it be made incremental, or accepted? This is pending the architect.
 
 **Correction (after commit):** R2-1 **was partly in** the committed snapshot. engineer-1 added `sync_fs()` to `tests/support/fixtures.rs` between my first grep and the snapshot, and it is called by the 10,000-file test. **`m8_tree` does not call it** (grep: one caller only), even though engineer-1's note says both do. T030c item 1 is narrowed to: call `sync_fs` in `m8_tree` (and any other btrfs fixture), then 200 runs.
+
+**Architect rulings (after commit):**
+- design §3.4 now names `top_updating()` (R2-3 closed);
+- **the ~80 ms `remove_subtree` step is accepted for v1.** Incremental removal is backlog, revisited if a real delete exceeds 250 ms. The mitigation (draw the outcome frame before applying the removal) goes to T030b;
+- **criterion 5 accepted** as checked indirectly (estimated 0.4–0.9 s spread across ticks, under the 1.5 s target).
