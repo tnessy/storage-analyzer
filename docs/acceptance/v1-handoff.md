@@ -1,16 +1,14 @@
 # v1 hand-off to project-owner (Heimdall, 2026-10-23)
 
-> **ON HOLD (2026-10-24):** the user added v1 scope (disk read speed in the status bar, T036). The acceptance pin below is **superseded** once T036 lands; a new pin and a fresh integration pass will follow.
-
-**Status:** every planned v1 task is implemented, reviewed, and committed. **Acceptance build: code commit `979735e`.** Every later commit changes `docs/` only (`git diff 979735e HEAD -- src tests examples Cargo.toml Cargo.lock` is empty). The final acceptance commit is the one that adds this line (`git log -1 --format=%h -- docs/acceptance/v1-handoff.md`). Ready for acceptance using `docs/acceptance/runbook.md`.
+**Status:** every planned v1 task is implemented, reviewed, and committed. **Acceptance build: code commit `d5dd0f7`** (includes M13 disk read speed, T036a–c). Every later commit changes `docs/` only (`git diff d5dd0f7 HEAD -- src tests examples Cargo.toml Cargo.lock` is empty). The final acceptance commit is the one that adds this line (`git log -1 --format=%h -- docs/acceptance/v1-handoff.md`). Ready for acceptance using `docs/acceptance/runbook.md`.
 
 ## Integration evidence (fresh, clean worktree at HEAD)
 - `cargo fmt --check` ok; `cargo clippy --all-targets --all-features -D warnings` clean; doc tests ok; `cargo build --release` ok.
-- **`cargo test --all-targets`: 543 passed, 0 failed, 4 ignored**, in 3 consecutive clean runs.
+- **`cargo test --all-targets`: 589 passed, 0 failed, 4 ignored**, in 3 consecutive clean runs at `d5dd0f7`.
 - **`-- --ignored`** (mount-point tests under `unshare -rm`): all pass.
 - **btrfs du parity** (`SA_TEST_BTRFS_DIR=$HOME/tmp/sa-tests`): 30/30.
-- **Concurrency-sensitive suites:** app_controls, app_delete, ui_lists, top_reserve and scan_walker, 50/50 each.
-- **Real terminal** (release binary, pty 100×30, scratch tree): scan to Done; Types, Largest, map focus, help; delete of the selected folder with confirmation; quit; terminal restored.
+- **Concurrency-sensitive suites:** app_controls, app_delete, ui_lists, top_reserve and scan_walker 50/50 each; diskio_source 20/20.
+- **Real terminal** (release binary, pty 100×30): scan to Done; Types, Largest, map focus, help; delete of the selected folder with confirmation (scratch tree); quit; terminal restored; the M13 field on `/home/nss` and its absence on tmpfs.
 
 ## Requirement status (details and checks in the runbook)
 | Req | Status |
@@ -25,6 +23,7 @@
 | M10 robustness | Permission errors, vanishing files and racing deletes; issues listed; hostile file names never rendered raw |
 | M11 scan controls | `p`, zoom, `x`, `r` (incl. "still scanning" = prioritise), `s` with the Stopping state; shallow-first |
 | M12 quit | Always asks; during a delete only `y`; stderr reports N of M; exit never blocks |
+| M13 disk read speed (v0.7) | `disk 64.2 MiB/s` while scanning, from `/sys` block-device counters of every device at or under the scan root (device-wide, so it includes other programs; explained in help). Hidden when unavailable (tmpfs, NFS, overlay, ZFS) or before the first full second; never a fake 0. Real terminal: `/home/nss` showed `disk 842.6 MiB/s`; a tmpfs folder showed no field |
 
 ## Decisions for the owner / user
 1. ~~Memory budget~~ **Closed by the project owner (2026-10-23): acceptable for v1, no user decision needed.** The non-gating figure is **~4.0 GiB RSS / ~210 B per entry for ~20 M entries** (T031, real data). The R1 spike figures are superseded and are not carried forward. **Tell the user once:** a full `$HOME` scan uses about 4 GiB of memory.

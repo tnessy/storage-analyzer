@@ -304,7 +304,7 @@ cargo test --all-targets
 cargo test --doc
 cargo build --release
 ```
-Expected at the acceptance build (code commit `979735e`; observed by the project owner at `3a0e360`, which has identical code): `cargo test --all-targets` reports **543 passed, 0 failed, 4 ignored** summed over all targets (unit tests, integration tests, and the `scan_harness` and `spike_r5_jitter` example tests); `cargo test --doc` reports 0 tests. Counts grow as tasks land.
+Expected at the acceptance build (code commit `d5dd0f7`): `cargo test --all-targets` reports **589 passed, 0 failed, 4 ignored** summed over all targets (unit tests, integration tests, and the `scan_harness` and `spike_r5_jitter` example tests); `cargo test --doc` reports 0 tests. Counts grow as tasks land.
 
 Opt-in variants
 - btrfs parity: `mkdir -p $HOME/tmp/sa-tests && SA_TEST_BTRFS_DIR=$HOME/tmp/sa-tests cargo test --test scan_du_parity -- --nocapture`
