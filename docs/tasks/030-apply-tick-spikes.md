@@ -57,9 +57,21 @@ Run it on `$HOME` and record in `spikes/R2-R4-R8-REPORT.md` which cause explains
   - while pending, `top_files()` returns the previous list **minus nodes that no longer exist**. Ask Heimdall if the architect specifies otherwise.
   - Also make the T012 rescan path use it (`begin_rescan` currently calls the one-shot rebuild).
 - **Event loop:** call `advance_top_rebuild(5 ms)` once per loop iteration while pending, after input and scan apply.
-- **Largest view:** show the UX wording for the "updating" state while pending. **The wording is pending from UX**; use the copy constant `LARGEST_UPDATING = "updating…"` until UX answers, and Heimdall will amend this brief.
+- **Largest view (UX §5.5, check 22; wording final):**
+  - **Placement:** `updating…` (ASCII `updating...`), right-aligned on the Largest view's **column-header row** with a 1-cell right margin. Not on the tab, not in the rows. It uses the header's own style, with no colour and no blinking (identical under NO_COLOR). Copy constant `LARGEST_UPDATING`.
+  - **Show it only if the rebuild is still running 200 ms after it started** (no flash); hide it as soon as the new list is in place.
+  - **Rows meanwhile:** the previous list stays, and rows for deleted files are removed at once. The new list then replaces the old one **in a single frame**: no partial or empty state.
+  - **Selection:** stays on the same file. If that file was deleted, it moves to the row now in the same position, or to the last row.
+  - **`⏎` (show in tree) and `d` stay enabled**, since every row shown still exists.
 - **File ownership for this part:** you also own `src/app/event_loop.rs` (the one call), `src/ui/largest_view.rs` and one constant in `src/ui/copy.rs`. engineer-2 is on T029 (`sanitize.rs` and tests) and won't touch these meanwhile.
 - **Tests (red first):**
   - on a synthetic 1 M-file model, every `advance_top_rebuild(5 ms)` call returns within ~2× budget, and the final list equals the one-shot rebuild;
   - while pending, `top_files()` holds no removed node;
-  - the Largest view shows the updating state while pending, and the final list after.
+  - **Check 22 (UX), with a gated recompute and a fake clock:**
+    - no `updating…` at 100 ms;
+    - present at 250 ms and fitting 80 columns;
+    - the rows equal the old list minus the deleted files;
+    - `⏎` works meanwhile;
+    - the text is gone after completion;
+    - a recompute that finishes under 200 ms never shows it.
+  - **Selection rule:** the selected file survives → it stays selected; it was deleted → the same position, or the last row.

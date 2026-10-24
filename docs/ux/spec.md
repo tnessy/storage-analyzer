@@ -478,6 +478,18 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 - `<cmd>: --top must be a whole number, 1 or more (got "-3")`
 - Several invalid flags: report the first one only, in command-line order, so the user fixes one thing at a time.
 
+**Largest view while its list is recomputed** (after a large delete, or a rescan near the end of a big scan; background work, about 0.5 s at 20 M entries):
+- **Where:** right-aligned on the Largest view's **column-header row**, with a 1-cell right margin. It is not shown on the tab and not in the rows.
+```
+    SIZE  PATH                                                        updating… 
+```
+- **Text:** `updating…` in Unicode and `updating...` in ASCII. Plain text in the header's own style (no colour, no blink), so it reads the same with NO_COLOR.
+- **Avoiding a flash:** it appears only if the recompute is still running **200 ms** after it started. It disappears as soon as the new list is in place. Short recomputes never show it.
+- **Rows meanwhile:** the **previous list stays**, with one exception: rows whose node no longer exists (deleted) are removed at once, so the list never offers a file that is gone. When the recompute finishes, the new list replaces the old one in a single frame. There are no partial lists and no empty state in between.
+- **Selection:** it follows the NodeId (F2 rule). If the selected file was deleted, the selection moves to the row now at the same position, or to the last row.
+- **Keys:** `⏎` (show in tree) and `d` stay **enabled**, because every row shown is a live node. Nothing is greyed out.
+- **Header width:** with the text on the right, the header row never truncates the column labels at 80 columns.
+
 **Pre-TUI errors** go to stderr with a non-zero exit, and no TUI is drawn:
 - `<cmd>: /foo: no such file or directory`
 - `<cmd>: /foo: not a directory`
@@ -808,3 +820,11 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
     - An `Aborted` outcome leaves no list.
     - The list fits at 80×24 and scrolls with `j`/`k`.
 21. **Other-filesystem rows:** in one-filesystem mode, `r`, `p` and `x` on an `(other filesystem)` row, in both the tree and the Skipped view, produce the §5.4 text and leave `ScanControl` unchanged. With a 40-character name at 80 columns, the message is ≤ 78 cells and still ends in `--cross-filesystems.`
+22. **Largest `updating…`:**
+    - Drive a recompute that takes ≥ 300 ms through a gated test hook:
+      - At 100 ms, the header row has no `updating`.
+      - At 250 ms, the header row ends with `updating… ` (ASCII: `updating... `) and fits in 80 columns.
+      - The rows equal the previous list minus deleted nodes, with no gap or empty state.
+      - `⏎` on a row selects that node in the tree.
+      - After it finishes, the text is gone and the rows equal the new list.
+    - A recompute that takes < 200 ms never renders `updating`.
