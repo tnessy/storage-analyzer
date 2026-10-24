@@ -144,6 +144,24 @@ pub fn truncate_left(s: &str, max: usize, ellipsis: &str) -> String {
     format!("{ellipsis}{}", tail.into_iter().collect::<String>())
 }
 
+/// Cuts `s` in the middle to at most `max` cells, keeping the start and the end around `ellipsis`.
+pub fn truncate_middle(s: &str, max: usize, ellipsis: &str) -> String {
+    if width(s) <= max {
+        return s.to_owned();
+    }
+    let room = max.saturating_sub(width(ellipsis));
+    let (head_room, tail_room) = (room.div_ceil(2), room / 2);
+    let mut head = String::new();
+    for c in s.chars() {
+        if width(&head) + width(&c.to_string()) > head_room {
+            break;
+        }
+        head.push(c);
+    }
+    let tail = truncate_left(s, tail_room, "");
+    format!("{head}{ellipsis}{tail}")
+}
+
 /// Display width, ignoring nothing: wide characters count 2 cells.
 pub fn width(s: &str) -> usize {
     UnicodeWidthStr::width(s)
@@ -173,6 +191,14 @@ pub fn truncate(s: &str, max: usize, ellipsis: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn middle_truncation_keeps_both_ends_within_the_limit() {
+        let cut = super::truncate_middle("abcdefghijklmnopqrstuvwxyz/", 15, "…");
+        assert_eq!(cut, "abcdefg…uvwxyz/");
+        assert_eq!(super::width(&cut), 15);
+        assert_eq!(super::truncate_middle("short/", 15, "…"), "short/");
+    }
+
     use super::*;
 
     #[test]

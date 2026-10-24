@@ -1200,3 +1200,120 @@ fn p_x_and_r_on_the_parent_row_still_only_show_the_parent_message() {
     );
     assert!(!r.state().control.is_cancelled(&r.path("x")));
 }
+
+// ---- r, p and x on an other-filesystem row (T020b, UX §5.4, check 21) ----
+
+const CROSS_FS: &str = " is on another filesystem. To scan it, use --cross-filesystems.";
+
+/// Everything `r`, `p` and `x` must leave alone on an other-filesystem folder.
+fn assert_untouched(r: &Rig, id: NodeId, what: &str) {
+    let st = r.state();
+    assert_eq!(st.priority, None, "{what}");
+    assert_eq!(st.control.focus(), None, "{what}");
+    assert!(!st.control.is_cancelled(&st.model.path(id)), "{what}");
+    assert!(!st.rescan_in_flight, "{what}");
+    assert!(st.queued_rescans.is_empty(), "{what}");
+    let issue = st.model.issue(id).expect("still an issue");
+    assert_eq!(issue.kind, IssueKind::OtherFilesystem, "{what}");
+}
+
+#[test]
+fn r_p_and_x_on_an_other_filesystem_row_say_so_and_change_nothing() {
+    for skipped_view in [false, true] {
+        let mut r = hint_scene(&["home"], &[]);
+        let home = r.find("home");
+        if skipped_view {
+            r.key(KeyCode::Char('4'));
+        } else {
+            r.select(home);
+        }
+        for key in ['r', 'p', 'x'] {
+            r.key(KeyCode::Char(key));
+            let what = format!("{key} (skipped view: {skipped_view})");
+            assert_eq!(
+                r.state().transient.as_ref().map(|t| t.text.as_str()),
+                Some(format!("home/{CROSS_FS}").as_str()),
+                "{what}"
+            );
+            assert_untouched(&r, home, &what);
+        }
+    }
+}
+
+#[test]
+fn a_long_other_filesystem_name_is_cut_in_the_middle_and_the_advice_stays_whole() {
+    use storage_analyzer::ui::theme::Glyphs;
+    let long = "abcdefghij0123456789ABCDEFGHIJ0123456789";
+    for ascii in [false, true] {
+        let mut r = manual(&[]);
+        let mut e = entry(long, Kind::Dir, 0);
+        e.issue = Some((Op::Open, IssueKind::OtherFilesystem));
+        r.send(synthetic::listing(ROOT, 1, vec![e]));
+        r.until("the listing", |r| r.state().model.issues().len() == 1);
+        if ascii {
+            r.st().glyphs = Glyphs::ascii();
+        }
+        let id = r.find(long);
+        r.select(id);
+        r.key(KeyCode::Char('r'));
+        let text = r.state().transient.as_ref().unwrap().text.clone();
+        let ellipsis = if ascii { "..." } else { "…" };
+        assert!(storage_analyzer::ui::format::width(&text) <= 78, "{text:?}");
+        assert!(text.ends_with(&format!("/{CROSS_FS}")), "{text:?}");
+        let name = text.strip_suffix(CROSS_FS).unwrap();
+        assert!(
+            name.starts_with("abcd") && name.contains(ellipsis),
+            "{text:?}"
+        );
+        assert!(name.trim_end_matches('/').ends_with("789"), "{text:?}");
+        assert_untouched(&r, id, &text);
+    }
+}
+
+#[test]
+fn d_on_an_other_filesystem_row_keeps_its_own_refusal() {
+    let mut r = hint_scene(&["home"], &[]);
+    let home = r.find("home");
+    r.select(home);
+    r.key(KeyCode::Char('d'));
+    assert_eq!(
+        r.state().transient.as_ref().map(|t| t.text.as_str()),
+        Some("/synthetic/root/home is on another filesystem and wasn't scanned. Not deleted.")
+    );
+}
+
+#[test]
+fn queued_rescans_start_together_and_the_scan_stays_in_flight_until_both_finish() {
+    let mut r = started_scan();
+    // `a` is being read by the single worker; `b` and `c` have not been started.
+    let (b, c) = (r.find("b"), r.find("c"));
+    r.key(KeyCode::Char('s'));
+    r.st().rescan(b);
+    r.st().rescan(c);
+    assert_eq!(r.state().queued_rescans, vec![b, c]);
+    // One permit lets the stop finish; nothing is left for the rescans until the test says so.
+    r.gate.grant(1);
+    r.until("the queued rescans to start", |r| {
+        r.state().queued_rescans.is_empty() && r.state().rescan_in_flight
+    });
+    r.gate.hold();
+    assert!(!r.state().model.is_complete(b) && !r.state().model.is_complete(c));
+    // A rescan reads the parent (to re-stat the folder) and then the folder: two reads. The first
+    // folder is tiny; once it is done the scan must still be in flight for the second.
+    r.gate.grant(2);
+    r.until("the first folder", |r| {
+        r.state().model.is_complete(b) || r.state().model.is_complete(c)
+    });
+    r.step(100);
+    assert!(
+        r.state().rescan_in_flight,
+        "the second folder is still being scanned: {}",
+        r.status()
+    );
+    r.gate.grant(100);
+    r.until("both folders", |r| {
+        r.state().model.is_complete(b)
+            && r.state().model.is_complete(c)
+            && !r.state().rescan_in_flight
+    });
+}

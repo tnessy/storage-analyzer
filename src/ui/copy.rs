@@ -319,3 +319,10 @@ pub fn delete_ended_with_errors(path: &str, removed_files: u64, failed: usize) -
 pub fn delete_not_done(path: &str) -> String {
     format!("delete of {path} was not done: nothing was deleted")
 }
+
+// ---- other-filesystem rows (UX §5.4) ----
+
+/// Cells for the folder name and its `/` in the message, so it fits 78 cells.
+pub const OTHER_FS_NAME_ROOM: usize = 15;
+pub const OTHER_FS_ROW_ADVICE: &str =
+    "is on another filesystem. To scan it, use --cross-filesystems.";

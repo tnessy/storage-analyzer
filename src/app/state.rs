@@ -374,6 +374,9 @@ impl AppState {
             }
             (None, Action::Prioritise) if self.view == View::Tree => self.press_priority(),
             (None, Action::Skip) if self.view == View::Tree => self.press_skip(),
+            (None, Action::Prioritise | Action::Skip) if self.view == View::Skipped => {
+                self.press_in_skipped_view();
+            }
             (None, Action::Resume) if matches!(self.view, View::Tree | View::Skipped) => {
                 self.press_resume();
             }

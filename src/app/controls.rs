@@ -40,6 +40,25 @@ impl AppState {
         }
     }
 
+    /// `r`, `p` and `x` on a folder that lives on another filesystem: say so; nothing changes.
+    fn refuse_other_filesystem(&mut self, id: NodeId) -> bool {
+        if self.model.rescan_plan(id) != RescanPlan::OtherFilesystem {
+            return false;
+        }
+        let name = sanitize::display_name(self.model.name(id));
+        let room = copy::OTHER_FS_NAME_ROOM - 1;
+        let name = format::truncate_middle(&name, room, self.glyphs.ellipsis);
+        self.say(format!("{name}/ {}", copy::OTHER_FS_ROW_ADVICE));
+        true
+    }
+
+    /// `p` or `x` in the Skipped view: only other-filesystem rows have anything to say.
+    pub fn press_in_skipped_view(&mut self) {
+        if let Some(id) = self.lists.selected_node(View::Skipped) {
+            self.refuse_other_filesystem(id);
+        }
+    }
+
     /// The folder `p`, `x` and `r` act on: the tree or map selection, if it is a folder row.
     fn folder_target(&self) -> Option<NodeId> {
         let id = self.tree.selection;
@@ -103,6 +122,9 @@ impl AppState {
         let Some(id) = self.folder_target() else {
             return self.say(copy::NOT_A_FOLDER);
         };
+        if self.refuse_other_filesystem(id) {
+            return;
+        }
         if self.priority == Some(id) {
             self.clear_priority();
             return self.say(copy::PRIORITY_CLEARED);
@@ -127,6 +149,9 @@ impl AppState {
         let Some(id) = self.folder_target() else {
             return self.say(copy::NOT_A_FOLDER);
         };
+        if self.refuse_other_filesystem(id) {
+            return;
+        }
         if self
             .model
             .issue(id)
@@ -161,11 +186,13 @@ impl AppState {
         let Some(id) = target.filter(|&n| self.model.exists(n)) else {
             return self.say(copy::NOT_A_FOLDER);
         };
+        if self.refuse_other_filesystem(id) {
+            return;
+        }
         let label = self.folder_label(id);
         match self.model.rescan_plan(id) {
             RescanPlan::NoneWhileScanning => self.say(copy::SCAN_IN_PROGRESS),
-            // T020b: message pending UX
-            RescanPlan::OtherFilesystem => {}
+            RescanPlan::OtherFilesystem => unreachable!("refused above"),
             RescanPlan::Full => {
                 self.rescan(id);
                 let text = format!("{} Resuming {label}…", self.glyphs.scanning);
@@ -174,9 +201,7 @@ impl AppState {
             RescanPlan::PrioritiseAndResume { resume } => {
                 let was_first = self.priority == Some(id);
                 self.set_priority(id);
-                for node in &resume {
-                    self.rescan(*node);
-                }
+                self.rescan_many(&resume);
                 let text = match (resume.len(), was_first) {
                     (0, true) => format!("Already scanning {label} first."),
                     (0, false) => format!(
@@ -214,22 +239,37 @@ impl AppState {
     /// The rescan sequence (also used by delete reconciliation): forget the folder's contents,
     /// scan it again. While stopping it is queued until `Done { cancelled }` arrives.
     pub fn rescan(&mut self, id: NodeId) {
+        self.rescan_many(&[id]);
+    }
+
+    /// Several rescans as one step: the walker cannot report `Done` between them, so
+    /// `rescan_in_flight` stays true until all are finished.
+    pub fn rescan_many(&mut self, ids: &[NodeId]) {
         if self.is_stopping() {
-            if !self.queued_rescans.contains(&id) {
-                self.queued_rescans.push(id);
+            for &id in ids {
+                if !self.queued_rescans.contains(&id) {
+                    self.queued_rescans.push(id);
+                }
             }
             return;
         }
+        if ids.is_empty() {
+            return;
+        }
         let was_scanning = self.is_scanning();
-        let path = self.model.path(id);
-        self.control.remove_prefixes_under(&path);
-        self.tile_colors.forget_reserved(id);
-        let (path, depth) = self.model.begin_rescan(id);
+        let mut targets = Vec::with_capacity(ids.len());
+        for &id in ids {
+            let path = self.model.path(id);
+            self.control.remove_prefixes_under(&path);
+            self.tile_colors.forget_reserved(id);
+            let (path, depth) = self.model.begin_rescan(id);
+            targets.push((id, path, depth));
+        }
         if !was_scanning {
-            self.begin_scan_timer(id == self.model.root());
+            self.begin_scan_timer(ids.contains(&self.model.root()));
         }
         if let Some(handle) = &self.scan_handle {
-            handle.rescan(id, path, depth);
+            handle.rescan_many(&targets);
         }
     }
 
@@ -258,9 +298,8 @@ impl AppState {
         self.model.apply(msg);
         if done {
             self.rescan_in_flight = false;
-            for id in std::mem::take(&mut self.queued_rescans) {
-                self.rescan(id);
-            }
+            let queued = std::mem::take(&mut self.queued_rescans);
+            self.rescan_many(&queued);
         }
     }
 }
