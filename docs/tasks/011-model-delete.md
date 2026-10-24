@@ -67,3 +67,6 @@ Dialogs and key handling (T021). Executor internals (T010).
 
 ## Note from the T005 review
 `recompute_top()` does not touch ext totals. `Removed` must subtract the ext totals of the removed files, through T012's `remove_subtree` and `Indexes::remove`. A re-charged hard link must be added back to the ext totals and the top lists.
+
+## Note (2026-10-23, re-order): fixtures
+T011 now runs **before** T007. If your real-filesystem tests need a fixture builder, create **`tests/support/fixtures.rs`** in this task, with only what you need (hard links in and out of a subtree, a `chmod 555` dir, plus a helper that runs `du -s -B1`). T007 then takes the file over and extends it. Include it with `#[path = "support/fixtures.rs"]`.

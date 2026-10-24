@@ -39,3 +39,6 @@ Commands: `cargo test --test scan_du_parity --test scan_robustness`, and `SA_TES
 
 ## Out of scope
 Delete parity (T011). UI.
+
+## Note (2026-10-23, re-order)
+T007 now runs after T012 and T011. `tests/support/fixtures.rs` may already exist from T011: extend it, don't replace it.
