@@ -165,7 +165,7 @@ impl Model {
     }
 
     /// `id`'s descendants (and `id` itself if `with_root`), parents before children.
-    fn collect_subtree(&self, id: NodeId, with_root: bool) -> Vec<NodeId> {
+    pub(super) fn collect_subtree(&self, id: NodeId, with_root: bool) -> Vec<NodeId> {
         let mut out = Vec::new();
         let mut stack: Vec<NodeId> = self.tree.children[id.0 as usize].clone();
         if with_root {
@@ -244,8 +244,8 @@ impl Model {
         self.remove_issues_of(&[node]);
     }
 
-    /// Drops the issues of `nodes`, keeping the others in insertion order (the Skipped
-    /// list addresses rows by position), and rebuilds the node-to-issue links once.
+    /// Drops the issues of `nodes`, keeping the others in insertion order (rows refer to
+    /// issues by node, plan D12), and rebuilds the node-to-issue links once.
     fn remove_issues_of(&mut self, nodes: &[NodeId]) {
         let mut any = false;
         for &n in nodes {

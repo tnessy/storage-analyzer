@@ -7,12 +7,12 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
-use crate::delete::{DeleteEvent, DeleteRequest};
 use crate::scan::{RawEntry, ScanMsg};
 use crate::types::{IssueKind, Kind, NodeId, Op, ScanIssue, ScanState, SizeMode};
 
 mod category;
 mod control;
+mod delete;
 mod hardlink;
 mod index;
 mod names;
@@ -155,6 +155,8 @@ pub struct Model {
     focus: Option<NodeId>,
     /// Nodes whose rescan has begun and whose fresh listing (or failure) has not arrived.
     rescan_roots: HashSet<NodeId>,
+    /// The folder a delete is running on.
+    delete_target: Option<NodeId>,
 }
 
 /// Sums of one listing, applied to the directory and its ancestors in a single walk.
@@ -210,6 +212,7 @@ impl Model {
             indexes: Indexes::new(opts.top_n),
             focus: None,
             rescan_roots: HashSet::new(),
+            delete_target: None,
         }
     }
 
@@ -298,6 +301,8 @@ impl Model {
         (idx != NO_ISSUE).then(|| &self.issues[idx as usize])
     }
 
+    /// Scan issues in insertion order. A rescan can remove entries, but never reorders the
+    /// rest; rows refer to an issue by its node (`ScanIssue::node`), not by index (plan D12).
     pub fn issues(&self) -> &[ScanIssue] {
         &self.issues
     }
@@ -383,8 +388,10 @@ impl Model {
         self.tree.ensure_len(end as usize);
 
         let mut delta = ListingDelta::default();
+        // Under a folder being deleted, scan errors are noise.
+        let quiet = self.is_tombstoned(dir);
         for (n, entry) in (first_id.0..end).zip(entries) {
-            self.insert_entry(dir, NodeId(n), entry, &mut delta);
+            self.insert_entry(dir, NodeId(n), entry, quiet, &mut delta);
         }
         self.entries_seen += u64::from(count);
         if dir == NodeId::ROOT {
@@ -393,7 +400,14 @@ impl Model {
         self.finish_dir(dir, &delta);
     }
 
-    fn insert_entry(&mut self, dir: NodeId, id: NodeId, entry: RawEntry, delta: &mut ListingDelta) {
+    fn insert_entry(
+        &mut self,
+        dir: NodeId,
+        id: NodeId,
+        entry: RawEntry,
+        quiet: bool,
+        delta: &mut ListingDelta,
+    ) {
         let is_dir = entry.kind == Kind::Dir;
         let descend = is_dir && entry.issue.is_none();
         let mut flags = if descend { Flags::PENDING } else { Flags::DONE };
@@ -437,7 +451,9 @@ impl Model {
             );
         }
         self.tree.children[dir.0 as usize].push(id);
-        if let Some((op, kind)) = entry.issue {
+        if let Some((op, kind)) = entry.issue
+            && !quiet
+        {
             self.record_issue(id, op, kind);
         }
 
@@ -502,6 +518,10 @@ impl Model {
         if kind == IssueKind::Vanished && self.drop_vanished_rescan_root(dir) {
             return;
         }
+        if self.is_tombstoned(dir) {
+            self.finish_dir(dir, &ListingDelta::default());
+            return;
+        }
         self.record_issue(dir, op, kind);
         self.tree.flags[dir.0 as usize].insert(flags_for_issue(kind));
         self.finish_dir(dir, &ListingDelta::default());
@@ -511,11 +531,14 @@ impl Model {
         if !self.is_open_dir(dir) {
             return;
         }
-        self.tree.flags[dir.0 as usize].insert(Flags::INCOMPLETE);
-        let ancestors: Vec<NodeId> = self.tree.chain(dir).collect();
-        for n in ancestors {
-            let i = n.0 as usize;
-            self.tree.inexact_dirs[i] += 1;
+        // A delete's cancels (the app cancels the target's jobs) are not skips.
+        if !self.is_tombstoned(dir) {
+            self.tree.flags[dir.0 as usize].insert(Flags::INCOMPLETE);
+            let ancestors: Vec<NodeId> = self.tree.chain(dir).collect();
+            for n in ancestors {
+                let i = n.0 as usize;
+                self.tree.inexact_dirs[i] += 1;
+            }
         }
         self.finish_dir(dir, &ListingDelta::default());
     }
@@ -593,20 +616,6 @@ impl Model {
         ![Flags::HARDLINK_DUP, Flags::ERROR, Flags::OTHER_FS]
             .iter()
             .any(|f| flags.contains(*f))
-    }
-
-    // T011
-    pub fn delete_refusal(&self, _id: NodeId) -> Option<Refusal> {
-        todo!("T011")
-    }
-    pub fn delete_check(&self, _id: NodeId, _mode: SizeMode) -> DeleteCheck {
-        todo!("T011")
-    }
-    pub fn begin_delete(&mut self, _id: NodeId) -> Result<DeleteRequest, Refusal> {
-        todo!("T011")
-    }
-    pub fn apply_delete(&mut self, _ev: &DeleteEvent) -> Reconcile {
-        todo!("T011")
     }
 }
 

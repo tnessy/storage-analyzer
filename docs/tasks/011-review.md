@@ -62,3 +62,20 @@ Until decided, T021 builds the dialog from `Outcome` (it already does).
 - the five commands;
 - 40 release runs of `delete_model` with 0 failures (show the loop output);
 - then I commit.
+
+## Final (2026-10-23): APPROVED, committed
+**Fresh evidence** (clean worktree: HEAD plus `src/model/{mod,control,delete}.rs`, `tests/delete_model.rs` and `tests/support/fixtures.rs`; I confirmed no other in-progress files were included):
+- fmt ok, whole-tree clippy clean. The clippy failure engineer-1 saw is in engineer-2's in-progress `tests/app_controls.rs`, which isn't part of this commit;
+- every suite passes, 3 times (delete_model 23, lib 105, model_controls 25, …);
+- doc tests ok, release build ok;
+- **40 consecutive runs of the release `delete_model` binary: 0 failures** (previously 8 of 40).
+
+**Fixes verified in code:**
+1. **Flaky test:** the hard-link test now picks the directory holding the charged link after the scan, and the retry loop is gone.
+2. **Vanished target:** `apply_delete` returns `Reconcile::None` and frees the delete slot when the target is gone. **My mutation** (removing the check) makes `a_target_that_left_the_model_mid_delete_needs_no_rescan` fail ✓.
+3. **Doc comment:** `Model::issues()` states D12.
+4. **F1:** `record_failures`, `node_at` and the errno mapping are removed, and the tests assert that `issues()` gets no delete-failure entries.
+
+**F2 (`OTHER_FS` after `Aborted(MountPoint)`):** not done, as agreed. engineer-1 confirmed that flagging an already-counted node would break the totals. **Backlog:** handle it in the app, by remembering the refusal, or in the walker's identity path.
+
+**Report note:** the older "Decisions" section of `011-report.md` still describes the retry loop. The appended fix section supersedes it.
