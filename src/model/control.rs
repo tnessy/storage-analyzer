@@ -45,9 +45,18 @@ impl Model {
         if !self.tree.exists(id) {
             return (self.root_path.clone(), 0);
         }
+        // Another filesystem is never scanned (ADR-008), so there is nothing to redo.
+        if self.flags(id).contains(Flags::OTHER_FS) {
+            return (self.path(id), self.depth(id));
+        }
         self.remove_subtree(id, true);
         let top = self.top_level_ancestor(id);
-        let top_was_complete = top.is_some_and(|t| self.is_complete(t));
+        // Taken before a never-counted top-level folder starts to count, so it enters
+        // the progress as unfinished.
+        let top_was_complete = top.is_some_and(|t| self.top_counted(t) && self.is_complete(t));
+        if self.kind(id) == Kind::Dir && self.parent(id) == Some(NodeId::ROOT) {
+            self.count_top_dir(id);
+        }
 
         self.remove_issue(id);
         let i = id.0 as usize;
@@ -89,10 +98,9 @@ impl Model {
         } else {
             self.top_level_ancestor(id)
         };
-        let top_was_complete = top.is_some_and(|t| self.is_complete(t));
+        let top_was_complete = top.is_some_and(|t| self.top_counted(t) && self.is_complete(t));
         let top_dir_was_complete = removing_top && self.is_complete(id);
-        let top_dir_counted =
-            removing_top && self.kind(id) == Kind::Dir && !self.flags(id).contains(Flags::OTHER_FS);
+        let top_dir_counted = removing_top && self.top_counted(id);
 
         let removed = self.removed_sums(id, keep_root);
         let nodes = self.collect_subtree(id, !keep_root);
@@ -262,9 +270,28 @@ impl Model {
         }
     }
 
+    fn top_counted(&self, id: NodeId) -> bool {
+        self.flags(id).contains(Flags::TOP_COUNTED)
+    }
+
+    /// A top-level directory that is about to be scanned counts from now on.
+    fn count_top_dir(&mut self, id: NodeId) {
+        if !self.top_counted(id) {
+            self.tree.flags[id.0 as usize].insert(Flags::TOP_COUNTED);
+            self.top_total += 1;
+        }
+    }
+
+    fn uncount_top_dir(&mut self, id: NodeId) {
+        if self.top_counted(id) {
+            self.tree.flags[id.0 as usize].remove(Flags::TOP_COUNTED);
+            self.top_total -= 1;
+        }
+    }
+
     /// Keeps `top_done` right after something changed the completeness of `top`.
     fn adjust_top_done(&mut self, top: Option<NodeId>, was_complete: bool) {
-        let Some(t) = top.filter(|&t| self.tree.exists(t)) else {
+        let Some(t) = top.filter(|&t| self.tree.exists(t) && self.top_counted(t)) else {
             return;
         };
         match (was_complete, self.is_complete(t)) {
@@ -288,6 +315,10 @@ impl Model {
         if !self.tree.exists(node) || !self.rescan_roots.contains(&node) {
             return;
         }
+        if entry.kind == Kind::Dir && entry.issue == Some((Op::Stat, IssueKind::OtherFilesystem)) {
+            self.turn_into_other_filesystem(node, &entry);
+            return;
+        }
         let new_is_dir = entry.kind == Kind::Dir;
         if !new_is_dir && !self.tree.children[node.0 as usize].is_empty() {
             self.remove_subtree(node, true);
@@ -296,7 +327,7 @@ impl Model {
         let old_is_dir = self.tree.kind[i] == Kind::Dir;
         let (old_disk, old_apparent) = (self.tree.own_disk[i], self.tree.own_apparent[i]);
         let top = self.top_level_ancestor(node).filter(|&t| t != node);
-        let top_was_complete = top.is_some_and(|t| self.is_complete(t));
+        let top_was_complete = top.is_some_and(|t| self.top_counted(t) && self.is_complete(t));
         let is_top_dir = self.parent(node) == Some(NodeId::ROOT);
 
         if !old_is_dir {
@@ -349,7 +380,7 @@ impl Model {
                 flags.insert(Flags::DONE);
                 self.rescan_roots.remove(&node);
                 if is_top_dir {
-                    self.top_total -= 1;
+                    self.uncount_top_dir(node);
                 }
             }
             (false, true) => {
@@ -358,7 +389,7 @@ impl Model {
                 flags.remove(Flags::DONE);
                 flags.insert(Flags::PENDING);
                 if is_top_dir {
-                    self.top_total += 1;
+                    self.count_top_dir(node);
                 }
             }
             _ => {}
@@ -391,6 +422,40 @@ impl Model {
         if !old_is_dir || !new_is_dir {
             self.recompute_top();
         }
+        self.adjust_top_done(top, top_was_complete);
+    }
+
+    /// The rescan found the folder on another device: it is flagged `OTHER_FS` like such an
+    /// entry would have been, and leaves the sizes, the directory count and the progress.
+    fn turn_into_other_filesystem(&mut self, node: NodeId, entry: &RawEntry) {
+        let i = node.0 as usize;
+        if self.kind(node) != Kind::Dir {
+            return;
+        }
+        let top = self.top_level_ancestor(node).filter(|&t| t != node);
+        let top_was_complete = top.is_some_and(|t| self.top_counted(t) && self.is_complete(t));
+        let old_disk = self.tree.own_disk[i];
+        let mut cur = Some(node);
+        while let Some(n) = cur {
+            self.tree.agg_disk[n.0 as usize] -= old_disk;
+            cur = self.parent(n);
+        }
+        let ancestors: Vec<NodeId> = self.tree.chain(node).skip(1).collect();
+        for a in ancestors {
+            self.tree.dirs[a.0 as usize] -= 1;
+        }
+        self.add_pending(node, -1);
+        self.tree.own_disk[i] = 0;
+        self.tree.dev[i] = entry.dev;
+        self.tree.ino[i] = entry.ino;
+        let flags = &mut self.tree.flags[i];
+        flags.remove(Flags::PENDING);
+        flags.insert(Flags::DONE);
+        flags.insert(Flags::OTHER_FS);
+        self.remove_issue(node);
+        self.record_issue(node, Op::Stat, IssueKind::OtherFilesystem);
+        self.uncount_top_dir(node);
+        self.rescan_roots.remove(&node);
         self.adjust_top_done(top, top_was_complete);
     }
 
@@ -430,6 +495,9 @@ impl Model {
 
     /// How `r` should treat `id` right now (design §3.11, plan O7).
     pub fn rescan_plan(&self, id: NodeId) -> RescanPlan {
+        if self.tree.exists(id) && self.flags(id).contains(Flags::OTHER_FS) {
+            return RescanPlan::OtherFilesystem;
+        }
         let scanning = matches!(self.state, ScanState::Starting | ScanState::Scanning);
         if !scanning {
             return RescanPlan::Full;

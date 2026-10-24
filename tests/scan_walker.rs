@@ -704,3 +704,39 @@ fn real_scan_of_a_temp_tree_lists_everything_and_flags_unreadable_dirs() {
     assert_eq!(denied, locked);
     assert_eq!(msgs.last(), Some(&ScanMsg::Done { cancelled: false }));
 }
+
+#[test]
+fn a_rescan_root_now_on_another_device_is_reported_and_not_listed() {
+    let mut run = begin(FakeFs::generate("/r", 1, 2, 1), "/r", 1, true);
+    run.until_done();
+    run.fs.set_dev("/r/d0", 2);
+    let calls_before = run.fs.calls().len();
+    run.handle.rescan(NodeId(2), "/r/d0".into(), 1);
+    let msgs = run.until_done();
+    assert_eq!(msgs.len(), 2, "{msgs:?}");
+    let ScanMsg::Identity { node, entry } = &msgs[0] else {
+        panic!("{msgs:?}")
+    };
+    assert_eq!(*node, NodeId(2));
+    assert_eq!((entry.kind, entry.dev), (Kind::Dir, 2));
+    assert_eq!(entry.issue, Some((Op::Stat, IssueKind::OtherFilesystem)));
+    let new_calls = &run.fs.calls()[calls_before..];
+    assert!(
+        !new_calls.iter().any(|c| c == "open /r/d0"),
+        "{new_calls:?}"
+    );
+}
+
+#[test]
+fn a_rescan_root_on_another_device_is_listed_when_crossing_is_allowed() {
+    let mut run = begin(FakeFs::generate("/r", 1, 2, 1), "/r", 1, false);
+    run.until_done();
+    run.fs.set_dev("/r/d0", 2);
+    run.handle.rescan(NodeId(2), "/r/d0".into(), 1);
+    let msgs = run.until_done();
+    let ScanMsg::Identity { entry, .. } = &msgs[0] else {
+        panic!("{msgs:?}")
+    };
+    assert_eq!(entry.issue, None);
+    assert!(matches!(msgs[1], ScanMsg::Listing { .. }));
+}

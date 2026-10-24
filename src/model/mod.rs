@@ -65,6 +65,8 @@ pub enum RescanPlan {
     PrioritiseAndResume { resume: Vec<NodeId> },
     /// The root while the scan runs: nothing changes.
     NoneWhileScanning,
+    /// Another filesystem: never scanned in one-filesystem mode (ADR-008), so never rescanned.
+    OtherFilesystem,
 }
 
 /// Snapshot shown in the delete dialog. Counts are lower bounds unless `exact`.
@@ -121,6 +123,8 @@ impl Flags {
     pub const DELETING: Flags = Flags(1 << 6);
     pub const TOMBSTONE: Flags = Flags(1 << 7);
     pub const REMOVED: Flags = Flags(1 << 8);
+    /// A directory counted in `top_level_progress` (a descended child of the root).
+    pub const TOP_COUNTED: Flags = Flags(1 << 9);
 
     pub const fn empty() -> Flags {
         Flags(0)
@@ -411,6 +415,9 @@ impl Model {
         let is_dir = entry.kind == Kind::Dir;
         let descend = is_dir && entry.issue.is_none();
         let mut flags = if descend { Flags::PENDING } else { Flags::DONE };
+        if descend && dir == NodeId::ROOT {
+            flags.insert(Flags::TOP_COUNTED);
+        }
         if let Some((_, kind)) = entry.issue {
             flags.insert(flags_for_issue(kind));
         }
@@ -647,6 +654,7 @@ mod tests {
             Flags::DELETING,
             Flags::TOMBSTONE,
             Flags::REMOVED,
+            Flags::TOP_COUNTED,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {

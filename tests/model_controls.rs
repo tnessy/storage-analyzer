@@ -824,3 +824,272 @@ fn rescan_plan_for_an_unfinished_folder_lists_nothing_twice_and_ends_exact() {
     assert_eq!(run.listed.len(), 13, "every directory exactly once");
     assert_eq!(run.model.take_focus_completed(), Some(f));
 }
+
+// ---- T027: top-level progress and other filesystems ------------------------
+
+fn top_dir_with_entry_issue(name: &str, kind: IssueKind) -> RawEntry {
+    let mut e = dir(name);
+    e.issue = Some((Op::Stat, kind));
+    e
+}
+
+#[test]
+fn rescanning_a_top_level_dir_whose_entry_had_an_issue_keeps_progress_consistent() {
+    let mut m = model();
+    m.apply(listing(
+        0,
+        1,
+        vec![
+            top_dir_with_entry_issue("a", IssueKind::PermissionDenied),
+            dir("b"),
+        ],
+    ));
+    m.apply(listing(2, 3, vec![]));
+    assert_eq!(
+        m.top_level_progress(),
+        (1, 1),
+        "the unreadable entry was never descended"
+    );
+
+    m.begin_rescan(id(1));
+    assert_eq!(
+        m.top_level_progress(),
+        (1, 2),
+        "it is a pending top-level dir now"
+    );
+    m.apply(listing(1, 4, vec![file("x", 4096, 1)]));
+    assert_eq!(m.top_level_progress(), (2, 2));
+    assert!(m.issues().is_empty());
+
+    let mut clean = model();
+    clean.apply(listing(0, 1, vec![dir("a"), dir("b")]));
+    clean.apply(listing(2, 3, vec![]));
+    clean.apply(listing(1, 4, vec![file("x", 4096, 1)]));
+    assert_eq!(clean.top_level_progress(), m.top_level_progress());
+    check_exact(&m, 5);
+}
+
+#[test]
+fn a_counted_top_level_dir_that_turns_into_a_leaf_leaves_the_total() {
+    let mut m = model();
+    m.apply(listing(0, 1, vec![dir("a"), dir("b")]));
+    m.apply(listing(2, 3, vec![]));
+    m.begin_rescan(id(1));
+    m.apply(ScanMsg::Identity {
+        node: id(1),
+        entry: ident("a", Kind::File, 4096, 1, 5),
+    });
+    assert_eq!(m.top_level_progress(), (1, 1));
+    // And back: a file that became a directory counts from now on.
+    m.begin_rescan(id(1));
+    m.apply(ScanMsg::Identity {
+        node: id(1),
+        entry: ident("a", Kind::Dir, 4096, 0, 6),
+    });
+    assert_eq!(m.top_level_progress(), (1, 2));
+    m.apply(listing(1, 4, vec![]));
+    assert_eq!(m.top_level_progress(), (2, 2));
+}
+
+fn with_mount() -> Model {
+    let mut m = model();
+    m.apply(listing(
+        0,
+        1,
+        vec![
+            top_dir_with_entry_issue("mnt", IssueKind::OtherFilesystem),
+            dir("b"),
+        ],
+    ));
+    m.apply(listing(2, 3, vec![]));
+    m
+}
+
+#[test]
+fn another_filesystem_is_never_rescanned() {
+    let mut m = with_mount();
+    assert_eq!(m.rescan_plan(id(1)), RescanPlan::OtherFilesystem);
+    m.apply(ScanMsg::Done { cancelled: false });
+    assert_eq!(
+        m.rescan_plan(id(1)),
+        RescanPlan::OtherFilesystem,
+        "also after Done"
+    );
+
+    let before = (
+        m.totals(),
+        m.top_level_progress(),
+        m.flags(id(1)),
+        m.issues().len(),
+    );
+    let (path, depth) = m.begin_rescan(id(1));
+    assert_eq!((path, depth), (PathBuf::from("/r/mnt"), 1));
+    assert_eq!(
+        (
+            m.totals(),
+            m.top_level_progress(),
+            m.flags(id(1)),
+            m.issues().len()
+        ),
+        before
+    );
+    m.apply(ScanMsg::Identity {
+        node: id(1),
+        entry: ident("mnt", Kind::Dir, 4096, 0, 9),
+    });
+    assert_eq!(m.totals(), before.0, "nothing changed");
+    assert!(m.flags(id(1)).contains(Flags::OTHER_FS));
+}
+
+#[test]
+fn a_rescan_root_found_on_another_device_becomes_an_other_filesystem_node() {
+    let mut m = model();
+    m.apply(listing(0, 1, vec![dir("a"), dir("b")]));
+    m.apply(listing(1, 3, vec![file("x", 4096, 1)]));
+    m.apply(listing(2, 4, vec![]));
+    m.begin_rescan(id(1));
+    let mut entry = ident("a", Kind::Dir, 4096, 0, 9);
+    entry.dev = 2;
+    entry.issue = Some((Op::Stat, IssueKind::OtherFilesystem));
+    m.apply(ScanMsg::Identity { node: id(1), entry });
+
+    let expected = with_mount_named("a");
+    assert!(m.flags(id(1)).contains(Flags::OTHER_FS));
+    assert_eq!(
+        m.issue(id(1)).map(|i| i.kind),
+        Some(IssueKind::OtherFilesystem)
+    );
+    assert!(m.is_complete(id(1)) && m.is_complete(NodeId::ROOT));
+    assert_eq!(m.size(NodeId::ROOT, D), expected.size(NodeId::ROOT, D));
+    assert_eq!(m.counts(NodeId::ROOT), expected.counts(NodeId::ROOT));
+    assert_eq!(m.top_level_progress(), (1, 1));
+    assert_eq!(m.rescan_plan(id(1)), RescanPlan::OtherFilesystem);
+    check_exact(&m, 5);
+}
+
+fn with_mount_named(name: &str) -> Model {
+    let mut m = model();
+    m.apply(listing(
+        0,
+        1,
+        vec![
+            top_dir_with_entry_issue(name, IssueKind::OtherFilesystem),
+            dir("b"),
+        ],
+    ));
+    m.apply(listing(2, 3, vec![]));
+    m
+}
+
+mod progress_property {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0 % n
+        }
+    }
+
+    fn random_entry(rng: &mut Rng, n: u64) -> RawEntry {
+        let name = format!("e{n}");
+        match rng.below(6) {
+            0 => file(&name, 4096, 1),
+            1 => top_dir_with_entry_issue(&name, IssueKind::PermissionDenied),
+            2 => top_dir_with_entry_issue(&name, IssueKind::OtherFilesystem),
+            _ => dir(&name),
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn top_level_progress_matches_a_recount_through_random_operations(seed in any::<u64>()) {
+            let mut rng = Rng(seed | 1);
+            let mut m = model();
+            let mut next_id = 1u32;
+            let mut counted: HashSet<NodeId> = HashSet::new();
+            let mut root_listed = false;
+            for step in 0..60u64 {
+                let pending: Vec<NodeId> = (1..next_id)
+                    .map(NodeId)
+                    .filter(|&n| m.exists(n) && m.kind(n) == Kind::Dir)
+                    .filter(|&n| !m.flags(n).contains(Flags::DONE))
+                    .collect();
+                if !root_listed {
+                    let entries: Vec<RawEntry> =
+                        (0..2 + rng.below(4)).map(|i| random_entry(&mut rng, i)).collect();
+                    for (i, e) in entries.iter().enumerate() {
+                        if e.kind == Kind::Dir && e.issue.is_none() {
+                            counted.insert(NodeId(next_id + i as u32));
+                        }
+                    }
+                    let n = entries.len() as u32;
+                    m.apply(listing(0, next_id, entries));
+                    next_id += n;
+                    root_listed = true;
+                } else {
+                    match rng.below(6) {
+                        0 | 1 if !pending.is_empty() => {
+                            let d = pending[rng.below(pending.len() as u64) as usize];
+                            let entries: Vec<RawEntry> = (0..rng.below(4))
+                                .map(|i| random_entry(&mut rng, step * 10 + i))
+                                .collect();
+                            let n = entries.len() as u32;
+                            m.apply(listing(d.0, next_id, entries));
+                            next_id += n;
+                        }
+                        2 if !pending.is_empty() => {
+                            let d = pending[rng.below(pending.len() as u64) as usize];
+                            m.apply(ScanMsg::DirIssue {
+                                dir: d,
+                                op: Op::Open,
+                                kind: IssueKind::PermissionDenied,
+                            });
+                        }
+                        3 if !pending.is_empty() => {
+                            let d = pending[rng.below(pending.len() as u64) as usize];
+                            m.apply(ScanMsg::Cancelled { dir: d });
+                        }
+                        4 => {
+                            let all: Vec<NodeId> =
+                                (1..next_id).map(NodeId).filter(|&n| m.exists(n)).collect();
+                            if all.is_empty() {
+                                continue;
+                            }
+                            let n = all[rng.below(all.len() as u64) as usize];
+                            if m.rescan_plan(n) == RescanPlan::OtherFilesystem {
+                                continue;
+                            }
+                            m.begin_rescan(n);
+                            if m.parent(n) == Some(NodeId::ROOT) && m.kind(n) == Kind::Dir {
+                                counted.insert(n);
+                            }
+                            if rng.below(3) == 0 {
+                                // The rescan finds a leaf instead.
+                                let e = ident("e", Kind::File, 4096, 1, 3);
+                                m.apply(ScanMsg::Identity { node: n, entry: e });
+                                counted.remove(&n);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let live: Vec<NodeId> = counted
+                    .iter()
+                    .copied()
+                    .filter(|&n| m.exists(n) && m.kind(n) == Kind::Dir)
+                    .collect();
+                let done = live.iter().filter(|&&n| m.is_complete(n)).count() as u32;
+                let (got_done, got_total) = m.top_level_progress();
+                prop_assert!(got_done <= got_total);
+                prop_assert_eq!((got_done, got_total), (done, live.len() as u32));
+            }
+        }
+    }
+}

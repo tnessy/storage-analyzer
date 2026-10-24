@@ -291,11 +291,18 @@ impl<F: FsAccess> Worker<F> {
                 false
             }
             Ok(st) => {
-                let entry = raw_entry(name.as_bytes(), &st);
+                let mut entry = raw_entry(name.as_bytes(), &st);
+                // A folder that moved to another device (a mount appeared) is not entered.
+                let elsewhere =
+                    st.kind == Kind::Dir && shared.one_filesystem && st.dev != shared.root_dev;
+                if elsewhere {
+                    entry.issue = Some((Op::Stat, IssueKind::OtherFilesystem));
+                }
                 shared.send(ScanMsg::Identity {
                     node: job.dir,
                     entry,
                 }) && st.kind == Kind::Dir
+                    && !elsewhere
             }
         }
     }

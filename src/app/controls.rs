@@ -164,6 +164,8 @@ impl AppState {
         let label = self.folder_label(id);
         match self.model.rescan_plan(id) {
             RescanPlan::NoneWhileScanning => self.say(copy::SCAN_IN_PROGRESS),
+            // T020b: message pending UX
+            RescanPlan::OtherFilesystem => {}
             RescanPlan::Full => {
                 self.rescan(id);
                 let text = format!("{} Resuming {label}…", self.glyphs.scanning);
