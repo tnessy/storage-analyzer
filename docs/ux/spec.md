@@ -62,7 +62,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 ║                         ║│                      │┌ Projects/ 19.6G ┐┌ Dow…┐
 ║                         ║│                      ││ 11%             ││ 7% !│
 ╚═════════════════════════╝└──────────────────────┘└─────────────────┘└─────┘
- ◌ Scanning  01:12 elapsed · 12/31 top · read  64.2 MiB/s · ETA unknown
+ ◌ Scanning  01:12 elapsed · 12/31 top · disk  64.2 MiB/s · ETA unknown
  ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help
 ```
 
@@ -253,8 +253,8 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 |---|---|
 | Starting, no ETA source (first 2 s) | `◌ Starting…  00:00 elapsed`, with no ETA field. After 2 s it becomes the `Indeterminate` line, which says `ETA unknown`. |
 | Starting, ETA source exists (`Estimating`) | `◌ Starting…  00:00 elapsed  ETA estimating…`. `estimating…` appears **only** when a source exists (design rev 8, T013/T019), so it never promises an estimate that won't come. |
-| Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41.2k/s · read  64.2 MiB/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
-| Scanning, ETA source exists (`Eta`) | `◌ Scanning [bar] ~41%  01:12 elapsed  read  64.2 MiB/s  ETA ~01:44 (estimate, last scan)`. The source label is **only** `last scan` (history file or an earlier scan this session) or `filesystem` (inode count), per design §3.6 / ADR-010. |
+| Scanning, **no ETA source** (`Indeterminate`; the default first scan on btrfs) | Full: `◌ Scanning  01:12 elapsed · 12 of 31 top-level done · ≥12.4k folders queued · 1.24M entries · 96.1 GiB · 41.2k/s · disk  64.2 MiB/s · ETA unknown (no previous scan)`. **No bar, no `%`, no ETA digits.** See the drop order below. |
+| Scanning, ETA source exists (`Eta`) | `◌ Scanning [bar] ~41%  01:12 elapsed  disk  64.2 MiB/s  ETA ~01:44 (estimate, last scan)`. The source label is **only** `last scan` (history file or an earlier scan this session) or `filesystem` (inode count), per design §3.6 / ADR-010. |
 | Past estimate (`OverEstimate`) | `◌ Scanning [bar] ~99%  04:02 elapsed  ETA unknown (past estimate)` |
 | With priority | `▲ First: .cache/` is placed before the scanning text. If it doesn't fit, the bar is dropped first. |
 | Done | `✓ Done in 03:51 · 1,204,331 files · 182.9 GiB · 3 skipped (press 4)`. ETA is 00:00. |
@@ -267,11 +267,12 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
 | Transient message | Replaces the state text for 5 s or until the next key, then the state text returns. |
 
 - **Bar and percent:** shown **only when an ETA source exists** (`Eta`, `OverEstimate`). `~%` comes from `EtaView.fraction`, which never shows 100% before Done. In `Indeterminate`, `K of M top-level done` is a count and never a bar or `%`.
-- **Disk read speed** (new v1 scope, user request 2026-10-24). This is actual read throughput, not entries/s. The spec doesn't depend on its source; the architect chooses that.
-  - **Label and value:** `read ` followed by the value in the throughput format (§7.1), e.g. `read  64.2 MiB/s`.
+- **Disk read speed** (new v1 scope, user request 2026-10-24). This is actual read throughput, not entries/s. The source is **device-wide** block-device read counters (design §3.12): it includes other programs' reads, and sums the devices of a multi-device btrfs. That is why the label says `disk`, not `read`, and why the help explains it.
+  - **Label and value:** `disk ` followed by the value in the throughput format (§7.1), e.g. `disk  64.2 MiB/s`.
     - The value is **right-aligned in a fixed 11 cells** (the width of `999.9 MiB/s`), so the fields after it never shift as the number changes.
     - The text is the same in ASCII mode; it uses no glyphs.
-    - I chose the word `read` over a glyph such as `⛁`: that glyph has ambiguous width, is missing from many fonts, and says less.
+    - I chose the word `disk` over a glyph such as `⛁`: that glyph has ambiguous width, is missing from many fonts, and says less. `disk` also signals that this is the whole device's throughput, not the scanner's own reads.
+  - **`--cross-filesystems` changes nothing for the user.** The label, place and format stay the same. Which devices are summed is the architect's choice; I recommend the devices of every filesystem visited so far, so the number follows the scan. The help text says "the disk(s) being scanned", which is true either way.
   - **Where:**
     - Indeterminate line: after the rate (entries/s), before `ETA`, joined with ` · `.
     - Eta line: after elapsed, before `ETA`, joined with two spaces.
@@ -279,7 +280,7 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
   - **Not available yet, or not at all:** the field (label and value) is **hidden**. It is never shown as `0`, `--` or `…`.
     - It stays hidden until the first full sample window has finished, so it is absent during Starting.
     - It is hidden for the whole scan if the source can't be read, or if the source stops working mid-scan. There is no message, because it is a secondary metric.
-    - A *measured* zero, for example a scan served from the page cache, is real and shows as `read     0 B/s`.
+    - A *measured* zero, for example a scan served from the page cache, is real and shows as `disk     0 B/s`.
   - **When it shows:** only in the Scanning states (Indeterminate, Estimating, Eta and OverEstimate).
     - It is not shown during Starting, Stopping, Stopped, Done, or a post-Done subtree rescan (D3: the status line stays `✓ Done …`).
     - It is not shown in the deleting status.
@@ -298,19 +299,19 @@ This file owns layout, keys, states and copy. If anything here conflicts with `d
   6. `12 of 31` shortens to `12/31`;
   7. the queued field;
   8. `top-level done` shortens to `top` (`12/31 top`);
-  9. the read field;
+  9. the disk field;
   10. the top-level field.
 
   **Never dropped:** the state glyph and word, elapsed, and `ETA unknown`. At 80 columns with no prefix:
-  - **With the read field:** `◌ Scanning  01:12 elapsed · 12/31 top · read  64.2 MiB/s · ETA unknown` (70 cells of text; 71 with the 1-cell margin).
-  - **While the read field is hidden:** `◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown` (78 cells of text; 79 with the margin). With the read field hidden, steps 8–9 don't apply, so the line fits before reaching them. With the `▲ First: …` prefix, the same order continues.
+  - **With the disk field:** `◌ Scanning  01:12 elapsed · 12/31 top · disk  64.2 MiB/s · ETA unknown` (70 cells of text; 71 with the 1-cell margin).
+  - **While the disk field is hidden:** `◌ Scanning  01:12 elapsed · 12/31 top-level done · ≥12.4k queued · ETA unknown` (78 cells of text; 79 with the margin). With the disk field hidden, steps 8–9 don't apply, so the line fits before reaching them. With the `▲ First: …` prefix, the same order continues.
 - **80-column drop order (Eta):**
   1. the bar shrinks from 16 to 10 cells;
   2. `elapsed` shortens to its time only, after a `·` separator;
   3. the bar is removed;
-  4. the read field is removed.
+  4. the disk field is removed.
 
-  At 80 columns with a source and the read field, the result is `◌ Scanning ~41% · 01:12  read  64.2 MiB/s  ETA ~01:44 (estimate, last scan)` (75 cells of text).
+  At 80 columns with a source and the disk field, the result is `◌ Scanning ~41% · 01:12  disk  64.2 MiB/s  ETA ~01:44 (estimate, last scan)` (75 cells of text).
 
   **Never dropped:** `~%`, `~` before the time, `estimate`, and the source label.
 - **Elapsed:** updates at least once per second.
@@ -594,16 +595,18 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ║ --history to remember past scans (keeps one small file in ~/.local/state).   ║
 ║ Hard links count once, in the folder scanned first: totals match du, folder  ║
 ║ sizes may not. Deleting one name of a hard-linked file frees no space.       ║
+║ Disk speed: reads on the disk(s) being scanned, from all programs, not just  ║
+║ this one. Hidden when unavailable (e.g. tmpfs, NFS, overlay, ZFS).           ║
 ╚═════════════════════════════════════════════════════════════ Esc or ? close ═╝
 ```
-- That is 20 rows, which leaves 4 spare at 24.
+- That is 22 rows, which leaves 2 spare at 24.
 - **Hard-link footer (design §3.4, T023):** this is the only place that explains *attribution*, that is, which folder a hard-linked file is charged to. The delete dialog's hard-link line (§5.3) still gives the exact per-delete warning (`Space freed may be less: N files also have hard links outside this folder, so at most X is freed.`).
 - **ASCII key column:**
   - `↑↓ j k` becomes `Up Dn j k`.
   - `→ l` becomes `Right l`, and `← h` becomes `Left h`.
   - `⏎` becomes `Enter`, and `⌫ -` becomes `Bksp -`.
   - Borders become `#`, and the descriptions are unchanged.
-- **Help copy:** these footer lines replace the earlier one-line ETA note and the two-line map note in §7. The footer has three notes: map colours, ETA and hard links.
+- **Help copy:** these footer lines replace the earlier one-line ETA note and the two-line map note in §7. The footer has four notes: map colours, ETA, hard links and disk speed.
 
 ## 7. Visual system
 - **Text and chrome:** the terminal's default foreground and background. Dim text is used only for decoration such as tree guides, never for information.
@@ -842,7 +845,7 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 19. **Key hints and help:**
     - **(a) Hint strings:** at 80 columns, in both Unicode and ASCII mode, each context's hint line equals the §6 string exactly. In ASCII mode at 80 columns, the Tree line ends `p first  ? help`.
     - **(b) No single-letter key names:** in ASCII mode, no rendered buffer contains the tokens ` E ` or ` B ` used as key names. Check this with a regex for `(^| )[EB] (zoom|up|show)`.
-    - **(c) Help at 80×24:** the overlay is fully drawn. The bottom border with `Esc or ? close` is on row 24 or above, and all 19 entries of the §6 help mockup appear in it, along with the three footer notes (it must contain `Hard links count once`), in Unicode and in ASCII mode.
+    - **(c) Help at 80×24:** the overlay is fully drawn. The bottom border with `Esc or ? close` is on row 24 or above, and all 19 entries of the §6 help mockup appear in it, along with the four footer notes (it must contain `Hard links count once` and `Disk speed:`), in Unicode and in ASCII mode.
     - **(d) Help keys:** `Esc` and `?` close it; `q` opens the quit dialog; `j` changes nothing.
 20. **Delete failures (§5.3):**
     - After a `Partial` outcome, `v` in the result dialog opens the list, grouped by reason with counts. `Esc` returns to the dialog.
@@ -865,11 +868,11 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
       - `d` shows `Nothing to delete here.`
       - If the rebuild ends with an empty list, the body shows `No files found.` and the header has no `updating`.
 23. **Disk read speed (§5.2):** feed `EtaView` states and read samples through the status renderer.
-    - **(a) Indeterminate at 80 columns,** Unicode and ASCII: the line equals `◌ Scanning  01:12 elapsed · 12/31 top · read  64.2 MiB/s · ETA unknown` (ASCII: `~ Scanning  01:12 elapsed - 12/31 top - read  64.2 MiB/s - ETA unknown`), and it is ≤ 79 cells including the margin.
-    - **(b) Eta at 80 columns:** the line equals `◌ Scanning ~41% · 01:12  read  64.2 MiB/s  ETA ~01:44 (estimate, last scan)`.
+    - **(a) Indeterminate at 80 columns,** Unicode and ASCII: the line equals `◌ Scanning  01:12 elapsed · 12/31 top · disk  64.2 MiB/s · ETA unknown` (ASCII: `~ Scanning  01:12 elapsed - 12/31 top - disk  64.2 MiB/s - ETA unknown`), and it is ≤ 79 cells including the margin.
+    - **(b) Eta at 80 columns:** the line equals `◌ Scanning ~41% · 01:12  disk  64.2 MiB/s  ETA ~01:44 (estimate, last scan)`.
     - **(c) Fixed width:** with values `0 B/s`, `9.8 MiB/s` and `999.9 MiB/s`, the column where `ETA` starts is identical.
-    - **(d) Hidden field:** before the first sample, and when the source reports unavailable, the line contains no `read` and no `0 B/s`, and it equals the read-free 80-column form (78 cells).
-    - **(e) Measured zero:** shows `read     0 B/s`.
-    - **(f) Other states:** Starting, Stopping, Stopped, Done and Deleting contain no `read`.
+    - **(d) Hidden field:** before the first sample, and when the source reports unavailable, the line contains no `disk` and no `0 B/s`, and it equals the 80-column form without the disk field (78 cells).
+    - **(e) Measured zero:** shows `disk     0 B/s`.
+    - **(f) Other states:** Starting, Stopping, Stopped, Done and Deleting contain no `disk`.
     - **(g) Refresh:** feeding 10 samples within 1 s changes the displayed value at most once.
-    - **(h) NO_COLOR:** the read field cells have the default fg and bg, and the text is identical with and without `NO_COLOR`.
+    - **(h) NO_COLOR:** the disk field cells have the default fg and bg, and the text is identical with and without `NO_COLOR`.

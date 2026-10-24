@@ -7,8 +7,8 @@
   - **`/sys/dev/block/<maj:min>/stat` sectors read, resolved by path:** longest mountinfo prefix → source block device (st_rdev) → for btrfs, all members from /sys/fs/btrfs/<uuid>/devices. Stacked devices are used at the level the filesystem sits on.
   - Main-loop sampling. Rejected in rev 11: reading mountinfo and stat-ing the source can rarely block.
 - Decision:
-  - Use the third option, sampled on a small `diskio` helper thread every 1 s, exposed through the frozen `ReadBytesSource::read_bytes()` (atomics, never blocks). The main-loop meter converts it to a rate over a 1 s window, restarting the window when the device set changes. Sectors are 512 bytes (measured: 64 MiB O_DIRECT gave Δ134,272 sectors).
-  - With --cross-filesystems, sum the deduped union of visited block devices.
+  - Use the third option, sampled on a small `diskio` helper thread every 1 s, exposed through the frozen `ReadBytesSource::read_bytes()` (atomics, never blocks). The main-loop meter converts it to a rate over a 1 s window. The device set is resolved once (with --cross-filesystems: all block devices mounted at or under the root), and any read error makes the source unavailable for the rest of the scan. Sectors are 512 bytes (measured: 64 MiB O_DIRECT gave Δ134,272 sectors).
+  - With --cross-filesystems, sum the deduped union of block devices mounted at or under the root, resolved once at the start.
   - Unavailable (no block device, read errors, counter reset) → the field is hidden, never a fake 0. A measured 0 is shown.
   - The `diskio` module is read-only behind an injectable `SysView` trait.
 - Consequences:

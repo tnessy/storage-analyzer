@@ -2,7 +2,9 @@
 
 > **Name placeholder:** the command name is TBD. Docs use `<cmd>` for the command and `<app-id>` for directory names. Code MUST NOT hardcode it: one constant `APP_ID` (used for XDG paths and config) and the binary name taken from Cargo (`env!("CARGO_BIN_NAME")`) for messages. Renaming then means changing `Cargo.toml` + `APP_ID` only.
 
-Status: **accepted**, rev 11, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
+Status: **accepted**, rev 12, 2026-10-23. Author: Mimir (architect). Inputs: `docs/brief.md` v0.5, `docs/ux/spec.md` (final, layout A), `docs/ux/directions.md` (§6 accessibility).
+
+Rev 12 (2026-10-24): §3.12 lead rulings. The device set is resolved once (the cross-fs union is taken from mountinfo); any read error → unavailable; no rate type of its own; hidden during a subtree rescan after Done.
 
 Rev 11 (2026-10-24): §3.12 aligned to the frozen `ReadBytesSource` contract; the sampler moves to a helper thread.
 
@@ -485,21 +487,17 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
   - **`--cross-filesystems`:** the union over all filesystems visited. Unavailable ones contribute nothing.
 - **Resolution timing:**
   - Once before the scan starts, done right after frame 0, since it costs a few small reads of `/proc` and `/sys`.
-  - Lazily when the model first records a new mount crossing (cross-fs mode).
 
-**Sampling (rev 11: helper thread, matching the frozen contract `diskio::ReadBytesSource::read_bytes() -> Option<u64>`):**
+**Sampling (rev 12, lead rulings accepted):**
 - **Thread `diskio`,** spawned after frame 0:
-  1. It resolves the device set: mountinfo, a `stat` of the source, `/sys`. Rarely this can block (mount-table lock, odd `/dev`), so it stays off the main thread.
-  2. Every 1 s it reads each device's `stat`, sums `sectors × 512`, and stores the cumulative total in an `AtomicU64` plus an availability flag.
-  3. Cross-fs: the main loop sends new mount-crossing paths to it over a channel, and it resolves them and extends the set.
-- **`DeviceStatSource: ReadBytesSource`:** `read_bytes()` only loads the atomics. It never blocks and returns `None` while unavailable.
-- **The meter (main loop, 1 Hz):** `rate = Δ / Δt` over the last 1 s window.
-  - A decrease (counter reset, or the device set changing), or `None` → no value this second.
-  - When the set grows, the thread bumps a set generation; the meter restarts its window on a generation change, so a new device's lifetime counter is never counted as a 1 s spike.
-- **Read error on a device:** drop it from the set (with a generation bump). An empty set → `None`.
+  1. It resolves the device set **once**. One-filesystem mode: the root's filesystem. `--cross-filesystems`: the union of every block device mounted at or under the scan root, plus the root's own filesystem.
+  2. Every 1 s it stores the cumulative `Σ sectors × 512` in an atomic.
+  3. **Any read error makes the source unavailable for the rest of the scan.** Dropping one device would shrink the sum and look like a counter reset.
+- **`DiskSource: ReadBytesSource`:** `read_bytes()` loads the atomic and never blocks. It returns `None` while unresolved or unavailable.
+- **The meter** (engineer-2, main loop) owns the 1 s window, the rate, and "decrease or `None` → no value". There is no separate `DiskRate` type, and no channel or generation: the set never changes during a scan.
 
 **Display:**
-- **When shown:** only while `ScanState::Scanning` (including rescans). Hidden in Done, Stopped and Indeterminate-without-scan.
+- **When shown:** only during the main scan (`ScanState::Scanning`). Hidden in Done, in Stopped, and during a subtree rescan after Done (UX owns the status line).
 - **Format:** `disk ` + long size + `/s` (ux §7.1 long size): `disk 64.2 MiB/s`, `disk 0 B/s`.
 - **Never fabricated:**
   - **Unavailable:** the field is absent. No `0`, no `?`.
@@ -518,7 +516,7 @@ trait SysView {                                   // injectable; prod = real "/"
 }
 fn resolve(view: &dyn SysView, path: &Path) -> Option<DeviceSet>;  // DeviceSet = BTreeSet<(maj, min)>
 fn read_sectors(view: &dyn SysView, set: &DeviceSet) -> Option<u64>;  // Σ field 3 × 512; drops failing devices
-struct DeviceStatSource { total: Arc<AtomicU64>, available: Arc<AtomicBool>, generation: Arc<AtomicU64> }
+struct DiskSource { total: Arc<AtomicU64>, available: Arc<AtomicBool> }   // impl ReadBytesSource
 ```
 - **Write guard:** `diskio` only reads. It uses `read_to_string`, `read_link`, `read_dir` and `stat`, so the CI write guard is unchanged, and it is not on the allowlist.
 
