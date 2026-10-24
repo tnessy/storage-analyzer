@@ -25,7 +25,7 @@
 | M12 quit | Always asks; during a delete only `y`; stderr reports N of M; exit never blocks |
 
 ## Decisions for the owner / user
-1. **Memory budget correction (O10):** ~**4.0 GiB RSS for ~20 M entries** on real data (T031), not the 2.85 GiB from the R1 spike that "acceptable for v1" was based on. It is ~7 % of 60 GiB. Please re-confirm. Reductions are backlog (architect).
+1. ~~Memory budget~~ **Closed by the project owner (2026-10-23): acceptable for v1, no user decision needed.** The non-gating figure is **~4.0 GiB RSS / ~210 B per entry for ~20 M entries** (T031, real data). The R1 spike figures are superseded and are not carried forward. **Tell the user once:** a full `$HOME` scan uses about 4 GiB of memory.
 2. **M2 and M7 brief amendments** (above).
 3. **Types side panel at ≥ 120 columns (O2):** still deferred and not built.
 4. **Measured targets stay non-gating (O3)** unless the user says otherwise:
@@ -34,6 +34,9 @@
    - tick max 9.2 ms;
    - delete check 26 ms per 1 M nodes;
    - one ~80–101 ms model-removal step for a 602 k-entry folder delete (accepted; the outcome is drawn first).
+
+## Measured footprint (non-gating)
+- **Memory:** ~4.0 GiB RSS, ~210 B/entry, at 19.9 M entries on `$HOME` (glibc and mimalloc alike; not fragmentation).
 
 ## Backlog (not in v1)
 - **T032:** cached sorting for folders with ~1 M children (84 ms per frame today).
