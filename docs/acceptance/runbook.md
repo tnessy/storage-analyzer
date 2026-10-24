@@ -259,7 +259,8 @@ Measured on this machine (`$HOME`, about 19.9 M entries, warm cache) and reporte
 
 | Item | Measured | Target | Source |
 |---|---|---|---|
-| R1 memory per entry (20 M entries) | 152.8 B/entry, 2.85 GiB RSS | 120 B | `docs/tasks/008-report.md`, `spikes/r1-memory/` |
+| Process memory on real data (T031, 19.9 M entries on `$HOME`) | **~4.0 GiB RSS, ~210 B/entry** | 120 B (non-gating; owner accepted for v1) | `docs/tasks/031-report.md`, `spikes/R31-REPORT.md` |
+| ~~R1 synthetic spike~~ (superseded by T031) | ~~152.8 B/entry, 2.85 GiB~~ | — | `docs/tasks/008-report.md` (synthetic names and hard-link mix; not representative) |
 | Model apply rate | 2.7 to 4.1 M entries/s | n/a | T008, T009 |
 | R2 apply/walker ratio | 82 % at 4 threads, 48 % at 8, 39 % at 16; wall time flat from 4 to 16 threads | ≥ 70 % | `spikes/R2-R4-R8-REPORT.md` |
 | Longest apply tick (T030) | 9.2 ms | 50 ms | `docs/tasks/030-report.md` |
@@ -272,7 +273,7 @@ Measured on this machine (`$HOME`, about 19.9 M entries, warm cache) and reporte
 
 Known limits
 - **ETA unknown on a first scan with no source** (btrfs, history off): by design (ADR-010); the M2 amendment is with the project owner.
-- **R1 memory is 152.8 B/entry**, above the 120 B target; a full `$HOME` scan of about 20 M entries needs about 2.9 GiB of RAM.
+- **Memory:** a full `$HOME` scan of about 20 M entries uses **~4.0 GiB RSS (~210 B/entry)** (T031, real data; the owner accepted this for v1). The earlier R1 spike figure (152.8 B/entry, ~2.9 GiB) is **superseded**: its synthetic data had shorter names and almost no hard links.
 - **Hard links** are counted once, in the folder scanned first: totals equal `du`, individual folder sizes may differ from `du`'s.
 - **Delete is permanent** and never follows symlinks; the scan root, other-filesystem folders and mount points cannot be deleted.
 - **Terminal size:** below 80×24 only a "terminal too small" message is shown.
@@ -293,7 +294,7 @@ cargo test --all-targets
 cargo test --doc
 cargo build --release
 ```
-Expected at the time of writing (2026-10-23, after T029): `cargo test --all-targets` reports **524 passed, 0 failed, 4 ignored** summed over all targets (unit tests, integration tests, and the `scan_harness` and `spike_r5_jitter` example tests); `cargo test --doc` reports 0 tests. Counts grow as tasks land.
+Expected at the acceptance build (code commit `979735e`; observed by the project owner at `3a0e360`, which has identical code): `cargo test --all-targets` reports **543 passed, 0 failed, 4 ignored** summed over all targets (unit tests, integration tests, and the `scan_harness` and `spike_r5_jitter` example tests); `cargo test --doc` reports 0 tests. Counts grow as tasks land.
 
 Opt-in variants
 - btrfs parity: `mkdir -p $HOME/tmp/sa-tests && SA_TEST_BTRFS_DIR=$HOME/tmp/sa-tests cargo test --test scan_du_parity -- --nocapture`

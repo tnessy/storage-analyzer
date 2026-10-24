@@ -1,6 +1,6 @@
 # v1 hand-off to project-owner (Heimdall, 2026-10-23)
 
-**Status:** every planned v1 task is implemented, reviewed, and committed. HEAD `7570a8a`. Ready for acceptance using `docs/acceptance/runbook.md`.
+**Status:** every planned v1 task is implemented, reviewed, and committed. **Acceptance build: code commit `979735e`.** Every later commit changes `docs/` only (`git diff 979735e HEAD -- src tests examples Cargo.toml Cargo.lock` is empty). The final acceptance commit is the one that adds this line (`git log -1 --format=%h -- docs/acceptance/v1-handoff.md`). Ready for acceptance using `docs/acceptance/runbook.md`.
 
 ## Integration evidence (fresh, clean worktree at HEAD)
 - `cargo fmt --check` ok; `cargo clippy --all-targets --all-features -D warnings` clean; doc tests ok; `cargo build --release` ok.
@@ -34,6 +34,12 @@
    - tick max 9.2 ms;
    - delete check 26 ms per 1 M nodes;
    - one ~80–101 ms model-removal step for a 602 k-entry folder delete (accepted; the outcome is drawn first).
+
+## Release notes: known limits of v1
+- **Not built (deferred):** the Types side panel at ≥ 120 columns (UX §3, plan O2). The `2` Types view is the only file-type breakdown.
+- **Test terminal is simulated:** the UI tests run on ratatui's `TestBackend` and a headless event loop, so first-frame and input-latency numbers are from that, not from a real terminal. Real-terminal behaviour (alternate screen, raw mode, signals, colour depth, resize) is covered only by manual checks and by the lead's pty smoke runs during the reviews.
+- **NO_COLOR:** there are no separate NO_COLOR snapshots per dialog. Snapshots are text-only, and NO_COLOR is verified by attribute tests (no fg/bg colour on any cell) plus manual checks.
+- **ETA on a first scan without history** is "unknown" by design (ADR-010).
 
 ## Measured footprint (non-gating)
 - **Memory:** ~4.0 GiB RSS, ~210 B/entry, at 19.9 M entries on `$HOME` (glibc and mimalloc alike; not fragmentation).
