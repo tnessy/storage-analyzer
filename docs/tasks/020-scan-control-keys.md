@@ -120,3 +120,6 @@ The rescan sequence (`app::rescan`) must also call `state.tile_colors.forget_res
 - **`r` on the root after Done or Stopped** (a full rescan): call `AppState::use_session_previous()` before starting it, so the ETA uses the in-session previous scan (`last scan`).
 - **The rescan's own `Done { cancelled: false }`** must go through `scan_finished(Root)` again, so `session_previous` and the opt-in history are updated.
 - **Test:** scan, Done, `r` on the root → the status shows `(estimate, last scan)` once the rate settles.
+
+## Note from the T012 review (plan D12)
+`Model::issues()` entries can now be removed by rescans; the order is insertion order. **Re-key the Skipped list's rows (`RowKey::Issue`) by `ScanIssue::node` (`NodeId`)** instead of by index into `issues()`, and fix the comment at `app/list_state.rs:23`. Test: with the cursor on issue C, a rescan that removes an earlier issue B leaves the cursor on C.

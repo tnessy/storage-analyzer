@@ -70,3 +70,6 @@ Dialogs and key handling (T021). Executor internals (T010).
 
 ## Note (2026-10-23, re-order): fixtures
 T011 now runs **before** T007. If your real-filesystem tests need a fixture builder, create **`tests/support/fixtures.rs`** in this task, with only what you need (hard links in and out of a subtree, a `chmod 555` dir, plus a helper that runs `du -s -B1`). T007 then takes the file over and extends it. Include it with `#[path = "support/fixtures.rs"]`.
+
+## Carried over from T012 (criterion 4)
+Integration test: a dir replaced by a file, then rescanned (`Identity` turns it into a file), then **a delete retry succeeds**. `begin_delete` builds a request with the new identity and kind, and the T010 executor removes it.
