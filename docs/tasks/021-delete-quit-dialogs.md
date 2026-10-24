@@ -114,3 +114,27 @@ The **"interrupted: N of M" numbers come from the last `Progress` received, or t
 
 ## Note from T025
 T025 intercepts `d`/`p`/`x`/`r` on the `..` row in `keymap.rs` (message `"." is the parent folder. Press ⏎ to go up.`, no effect). Keep that interception **ahead** of the handlers you add, and keep T025's tests green.
+
+## Amendment (2026-10-23): delete failures live in the app (design §3.8 revised, UX §5.3)
+- **`AppState.last_delete_failures`:**
+  - holds the `DeleteFailure`s of the most recent finished delete;
+  - **replaced** when the next delete *finishes*;
+  - **cleared** when that delete has no failures;
+  - `Aborted` deletes have no list.
+  - It is **not** in the model's issue list (T011 F1 removed that); the Skipped view stays scan-only (M10).
+- **`v` (View failed paths):** works in the result dialog **and** from the main screen whenever `last_delete_failures` is non-empty. With an empty list, the status message is `No delete failures to show.`
+- **After the result dialog is dismissed** (`Enter`): the transient `N items could not be deleted. Press v to see them.`
+- **Failure-list overlay:** full screen like help, 80×24 minimum, exactly as the UX §5.3 mockup:
+  - title `Couldn't delete N items ═ <path>`;
+  - groups by kind with counts, using the UX labels;
+  - paths relative to the target;
+  - `j/k` (and arrows, PgUp/PgDn) scroll, with a position cue (`↓ 1 of 9`);
+  - `Esc` closes.
+- **Help overlay:** list `v` in the right column (§6 key table). It must still fit 80×24 (check 19(c)). You own `src/ui/help.rs` and the help snapshots for this.
+- **Tests (red first):**
+  - a `Partial` with failures sets `last_delete_failures`, and a following clean delete clears it;
+  - `v` on the main screen opens the list, and with nothing to show it gives the message;
+  - the overlay groups and counts match the outcome, and scrolling reaches the last path;
+  - the transient after dismissal;
+  - help still fits at 80×24 with `v` listed;
+  - the Skipped view gains nothing from a `Partial`.

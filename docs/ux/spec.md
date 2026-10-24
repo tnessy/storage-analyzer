@@ -368,7 +368,31 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
   - `read-only filesystem`
   - `on another filesystem (not crossed)`
   - `other error (errno N: <strerror>)`
-- **`v`** opens a scrollable list of the failed paths, each with its reason. `Esc` returns to the result dialog.
+- **Where failures live (design §3.8 rev):** in the app's `last_delete_failures`, **not** in the Skipped view, which stays scan-only (M10). The list holds the failures of the most recent delete only.
+  - It is replaced when the next delete *finishes*.
+  - It is cleared if that delete has no failures.
+  - `Aborted` deletes have no list, because nothing was attempted.
+- **`v`, View failed paths.** `v` has no other binding anywhere, so there is no conflict. It works in two places:
+  1. In the result dialog.
+  2. **From the main screen, at any time** while `last_delete_failures` is non-empty. If the list is empty, `v` shows the status message `No delete failures to show.`
+- **After the result dialog is dismissed** (`Enter`), a transient status message says `112 items could not be deleted. Press v to see them.` The help overlay lists `v` (§6).
+- **Failure list overlay** (full screen, like help; 80×24 minimum):
+```
+╔═ Couldn't delete 112 items ═ /home/nss/.cache/yay ═══════════════════════════╗
+║ permission denied (108)                                                      ║
+║   pkg/linux-cachyos-7.2.9/root-owned/file1                                   ║
+║   pkg/linux-cachyos-7.2.9/root-owned/file2                                   ║
+║   …                                                                          ║
+║ busy or in use (4)                                                           ║
+║   cache/lockfile                                                             ║
+║                                                                   ↓ 1 of 9   ║
+╚══════════════════════════════════════════════════════ j/k scroll  Esc close ═╝
+```
+  - **Grouping:** by reason, largest group first, using the §5.3 failure labels. Within a group, paths are sorted by byte order.
+  - **Paths** are relative to the deleted target, sanitized, and truncated from the left with `…`. The full target path is in the title.
+  - **Scrolling:** `↑↓`/`jk`, `PgUp`/`PgDn` and `g`/`G` scroll. The page indicator `↓ N of M` changes `↓` to `↑` on the last page.
+  - **Closing:** `Esc` or `v` closes it and returns to wherever it was opened from (the result dialog or the main screen). `q` and `Ctrl-C` open the quit dialog (M12). Other keys are ignored.
+  - **ASCII mode:** `j/k scroll  Esc close`, `v N of M`/`^ N of M`, and `#` borders.
 
 **Delete: aborted, nothing deleted** (`Aborted`)
 ```
@@ -413,6 +437,8 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | Event | Text |
 |---|---|
 | Delete removed | `Deleted /home/nss/.cache/yay · freed 31.0 GiB (48,212 files)` |
+| Result dialog dismissed after failures | `112 items could not be deleted. Press v to see them.` |
+| `v` with no failures kept | `No delete failures to show.` |
 | Delete removed more than was scanned | `Deleted /home/nss/.cache/yay · freed 33.4 GiB (61,880 files, more than were counted)` |
 | Priority set / cleared | `▲ Scanning .cache/ first.` / `Priority cleared.` |
 | Priority folder finished | `✓ .cache/ fully scanned: 64.9 GiB · 211,004 files` |
@@ -468,6 +494,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 | `?` | Help overlay (every key, grouped as in this table) | Global |
 | `q` `Ctrl-C` | Quit dialog (§5.3) | Global |
 | `Esc` | Close the dialog or overlay; never quits | Dialogs |
+| `v` | View the last delete's failed paths | Result dialog; main screen while the last delete had failures |
 
 **Key hints (last row), by context:**
 - Tree: `↑↓ move ←→ fold ⏎ zoom ⌫ up Tab map d delete p first x skip ? help`
@@ -508,7 +535,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ║ ⏎         Zoom in, scan it first       ?         Show / hide this help       ║
 ║ ⌫ -       Up one level                 q Ctrl-C  Quit (asks first)           ║
 ║ Tab       Switch tree / map            Esc       Close dialog or help        ║
-║ 1 2 3 4   Tree Types Largest Skipped                                         ║
+║ 1 2 3 4   Tree Types Largest Skipped   v         Last delete's failures      ║
 ║ a         Disk usage / apparent                                              ║
 ║                                                                              ║
 ║ Map: files are coloured by type; the tag shows it (e.g. [V] video). Folders  ║
@@ -761,5 +788,12 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 19. **Key hints and help:**
     - **(a) Hint strings:** at 80 columns, in both Unicode and ASCII mode, each context's hint line equals the §6 string exactly. In ASCII mode at 80 columns, the Tree line ends `p first  ? help`.
     - **(b) No single-letter key names:** in ASCII mode, no rendered buffer contains the tokens ` E ` or ` B ` used as key names. Check this with a regex for `(^| )[EB] (zoom|up|show)`.
-    - **(c) Help at 80×24:** the overlay is fully drawn. The bottom border with `Esc or ? close` is on row 24 or above, and all 18 entries of the §6 help mockup appear in it, along with the three footer notes (it must contain `Hard links count once`), in Unicode and in ASCII mode.
+    - **(c) Help at 80×24:** the overlay is fully drawn. The bottom border with `Esc or ? close` is on row 24 or above, and all 19 entries of the §6 help mockup appear in it, along with the three footer notes (it must contain `Hard links count once`), in Unicode and in ASCII mode.
     - **(d) Help keys:** `Esc` and `?` close it; `q` opens the quit dialog; `j` changes nothing.
+20. **Delete failures (§5.3):**
+    - After a `Partial` outcome, `v` in the result dialog opens the list, grouped by reason with counts. `Esc` returns to the dialog.
+    - After `Enter`, the status line contains `Press v to see them`, and `v` from the main screen opens the same list.
+    - The Skipped view contains none of the failed paths.
+    - A following delete that succeeds clears the list, and then `v` shows `No delete failures to show.`
+    - An `Aborted` outcome leaves no list.
+    - The list fits at 80×24 and scrolls with `j`/`k`.

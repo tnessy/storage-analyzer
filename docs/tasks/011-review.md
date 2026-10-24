@@ -41,3 +41,24 @@ Design §3.8 says delete failures "are added to the issue list". `record_failure
 - **Option B:** keep a separate session list of delete failures that survives rescans, shown in Skipped.
 
 Until decided, T021 builds the dialog from `Outcome` (it already does).
+
+## Update 2026-10-23: architect's second review passed; the merge still waits on items 1–3 plus F1
+**The architect's second review passed:** correct against §3.8, §3.11 and ADR-007, and accepted into design §3.8.
+
+**Status of my required items** (checked in the working tree today):
+- **Item 1, flaky test:** the `(0..50).any(...)` retry is still at `tests/delete_model.rs:598`. **Not done.**
+- **Item 2, `apply_delete` when the target no longer exists:** not done. The `exists(target)` check at `delete.rs:139` is inside `clear_tombstone`, so `Rescan(target)` is still returned for a missing node.
+- **Item 3, the `Model::issues()` doc comment:** not done. This is the "second comment" engineer-1 couldn't find. It isn't a stale comment; it is a **missing** one on `pub fn issues` in `src/model/mod.rs`. The `remove_issues_of` comment is fixed ✓.
+
+**Added from the architect (F1):**
+- **Remove `record_failures`, `node_at` and `issue_kind`** from `src/model/delete.rs`. Delete failures no longer go into the scan issue list; they live in the app as `last_delete_failures` (design §3.8 revised, T021).
+- `Partial` now only clears the tombstone and returns `Rescan(id)`.
+- Update or remove the tests that asserted failures in `issues()`.
+- Add a test that after `Partial` with failures, `issues()` gains no delete-failure entries.
+
+**Architect F2** (after `Aborted(MountPoint)`, set `OTHER_FS` on the node): **deferred to the backlog.** The D1 rescan that follows rebuilds the node's flags from the walker's `Identity`, so a flag set here wouldn't survive. A proper fix belongs in the walker's identity path, so it is a design follow-up, not T011.
+
+**After items 1–3 and F1:**
+- the five commands;
+- 40 release runs of `delete_model` with 0 failures (show the loop output);
+- then I commit.

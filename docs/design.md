@@ -321,14 +321,14 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
   - **During a delete:** `A delete is in progress: <path>, 12,400 of 48,212 files removed. Quitting stops it after the current file and leaves the folder partly deleted.` Only `y` quits here. **Any other key**, including a second `q`, returns to the UI, and the delete continues (brief M12). On `y`: set the executor stop flag, wait at most 2 s for the current entry, restore the terminal, and print `<cmd>: delete of <path> interrupted: N of M removed` to stderr.
   - **Signals:** `SIGTERM`/`SIGHUP` can't prompt. They stop the executor after the current entry, restore the terminal, and print the same message.
 - **Reconciliation (model):**
-  - Mark the target `TOMBSTONE` when the delete starts.
+  - Mark the target `TOMBSTONE` when the delete starts. Under the tombstone (T011, accepted): listings still in flight are applied, which keeps `pending_dirs` consistent; scan issues are discarded; and `Cancelled` only retires pending work and does not count as a skip.
   - On `Removed`: remove the subtree, subtract its aggregates from ancestors, update the ext and top-N indexes, and re-charge hard links whose counted occurrence was deleted to a surviving `others` entry.
   - On `Partial` **or `Aborted`** (plan D1): clear `TOMBSTONE`/`DELETING`, remove the cancelled prefix, and run a subtree rescan of the target. It shows `◌` until done.
     - The rescan re-`statx`es the target itself and refreshes its `ino`/`dev`/`kind` (needed after `ChangedSinceScan`).
     - If the target is gone (`NotFound`), its node is removed.
   - **Rescan clears inner skips** (plan D2): `begin_rescan(X)` removes every cancelled prefix at or under X. This applies to `r` and to the automatic rescans above.
   - **Status during a rescan after `Done`** (plan D3): the global status stays `✓ Done …` and elapsed is not reset. Affected rows show `◌`. No ETA is shown for subtree rescans.
-  - Results are shown in the UX result dialog, which must be dismissed explicitly, and failures are added to the issue list. They are never silent.
+  - Results are shown in the UX result dialog, which must be dismissed explicitly. **Delete failures are kept in the app as `last_delete_failures`** (shown by `v` in the result dialog, until the next delete), **not in the scan issue list**. The automatic rescan rebuilds the subtree and its issues, so failures recorded there would vanish within the same tick (T011 review). The scan issue list stays scan-only (M10). Failures are never silent.
 - **Invariant (tested):** after any delete, the model totals equal `du` on the remaining tree.
 
 ### 3.9 UI
