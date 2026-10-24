@@ -53,7 +53,7 @@ Requested from the architect (via the team lead) for `src/app/delete_flow.rs` an
 **Correction (Heimdall):** item 4's diagnosis was **wrong**. The flaky `r_after_a_stop_is_a_full_rescan_at_once` is a **real race in the walker (T006)**, not a test race. The architect traced it: a worker in the cancel branch drains a rescan job pushed just after `Done`. It is moved to **T028 (engineer-1)**. **Do not change that test in T021.**
 
 **UX ruled on items 1–3:** some of my required items are withdrawn, and UX's wording is final in `ux/spec.md` §5.3/§7/§7.1.
-- **Withdrawn:** byte-order sorting of failed paths (accepted as built); the Unicode `FAILED_KEYS` hint (accepted); the `▲` on the prioritising hint (accepted as built, along with the other dialog text).
+- **Withdrawn:** byte-order sorting of failed paths (accepted as built); ~~the Unicode `FAILED_KEYS` hint (accepted)~~ **reinstated: see item 9**; the `▲` on the prioritising hint (accepted as built, along with the other dialog text).
 - **Wrapped dialog lines** returning to the 2-cell inner margin is now the stated rule. List items are indented 2 more cells, never wrap, and truncate with `…`.
 
 **Round 2 (engineer-2, tests first), all in `ui/copy.rs` unless noted:**
@@ -71,6 +71,7 @@ Requested from the architect (via the team lead) for `src/app/delete_flow.rs` an
 5. **Architect T021 low #1, exit wait ~4 s instead of 2 s:** `stop_delete` waits up to 2 s, then dropping the handle waits up to 2 s more. Skip Drop's wait when `stop_delete` already waited, for example with a `DeleteHandle::detach()` that the quit path calls. **Test:** with an executor that never finishes, `q y` returns within 2.5 s.
 6. **Architect T021 low #2, wrong exit message:** if the delete finishes during that wait, the message still says `interrupted: N of M`, because the drain loop stops at `Finished` and ignores it. Use the real outcome: print nothing for `Removed`, and report `Partial`/`Aborted` honestly. **Test:** an executor that finishes during the wait → no "interrupted" line.
 7. **Architect T021 minor #3, silent close:** if the open confirmation's target becomes refused while the dialog is open (for example, it is now inside a running delete or gone), the dialog currently closes **without a message**. Show the refusal text (§5.3). **Test:** make the target refused while the dialog is open; the dialog closes and the status shows the refusal.
+9. **Failure-list footer:** the spec mockup (§5.3) shows `j/k scroll  Esc close` in **both** Unicode and ASCII. Use it; the spec wins over the earlier "accepted" note. Update the snapshot.
 8. **Prior item 5 still stands:** the 3 tests that passed on stubs need one targeted breakage each, shown failing.
 
 **After round 2:**
