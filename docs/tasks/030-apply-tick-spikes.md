@@ -45,8 +45,8 @@ Run it on `$HOME` and record in `spikes/R2-R4-R8-REPORT.md` which cause explains
 ## Files owned
 `src/scan/msg.rs` (the contract change), `src/scan/walker.rs`, `src/model/mod.rs`, `src/model/tree.rs`, `src/model/names.rs` (Part 3 only), `examples/scan_harness.rs`, `tests/scan_walker.rs`, `tests/model_apply.rs`, plus the mechanical `last: true` edits listed above.
 
-## Part 4: resumable `recompute_top`: **ON HOLD, do not start**
-> **Hold (2026-10-23, team lead):** the user approved T030 for the tick spikes. Whether the post-delete freeze fix is in v1 scope has **not** been ruled on, and the architect's API details and UX's wording are pending. **Do Parts 1–3 only.** Heimdall will lift this hold, or move Part 4 back out, when the decision arrives.
+## Part 4: resumable `recompute_top` (approved; waiting for the architect's API details)
+> **Approved by the user for v1 (2026-10-23).** **Sequence:** do Parts 1–3 first. Start Part 4 **only after Heimdall adds the architect's API details here** (requested; pending). The UX spec (§5.5, check 22) is already included below. File ownership for this part: the model, the event-loop call, `src/ui/largest_view.rs` and the `LARGEST_UPDATING` constant in `src/ui/copy.rs`.
 
 (Folded in from the former T033.)
 **Problem:** `recompute_top` takes 0.4–0.6 s at 20 M entries and runs after every `Removed`, which freezes the UI for about half a second.
