@@ -1069,4 +1069,18 @@ mod dialogs {
             "{rows:?}"
         );
     }
+
+    /// A crafted name cannot display reversed: the confirmation shows the escape, not U+202E.
+    #[test]
+    fn a_bidi_override_in_the_path_is_escaped_in_the_confirmation() {
+        let mut scan = Scan::new();
+        scan.list(NodeId::ROOT, vec![folder("evil\u{202E}txt.exe")]);
+        scan.list(NodeId(1), vec![file("x", 10)]);
+        let config = cli::parse(APP_ID, [APP_ID, "--no-animation"]).unwrap();
+        let mut state = AppState::new(config, scan.model);
+        state.dialog = Some(prompt(&state, "evil\u{202E}txt.exe", false));
+        let screen = draw(&mut state);
+        assert!(!screen.contains('\u{202E}'), "{screen}");
+        assert!(screen.contains("evil\\u{202E}txt.exe"), "{screen}");
+    }
 }

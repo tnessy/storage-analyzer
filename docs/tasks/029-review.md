@@ -1,0 +1,12 @@
+# T029 review (Heimdall, 2026-10-23): APPROVED, committed (hash-checked snapshot)
+- **Fresh evidence** (clean worktree: HEAD plus `src/ui/sanitize.rs`, `tests/app_delete.rs` and `tests/ui_tree.rs` only; engineer-1's T030 work-in-progress excluded):
+  - fmt ok, whole-tree clippy clean;
+  - every suite passes (app_delete 22, ui_tree 32, lib 110, …);
+  - release build ok.
+- **What changed:**
+  - `sanitize` escapes U+061C, U+200E/F, U+202A–202E and U+2066–2069 as `\u{XXXX}`, and leaves neighbours such as U+200D, U+202F and U+2065 untouched;
+  - `display_name` goes through it;
+  - escaping happens before width measurement and truncation;
+  - the grep shows that every displayed name or path goes through `sanitize` (the only raw conversion left is the history key, which is never displayed).
+- **Tests:** red first is reported (one unit test per code point, the delete confirmation, a tree row).
+- **Pre-existing flake found during verification (not T029):** `examples/scan_harness.rs`'s smoke test (committed in T009) fails **14 of 100** runs with `assert!(!report.ticks.is_empty())`, because a 1,000-entry tree can finish before the first tick. Heimdall missed it in the T009 review. It is assigned to **T030 round 2 (R2-8)**, since engineer-1 is editing that file.

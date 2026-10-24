@@ -1115,3 +1115,19 @@ fn long_parent_paths_are_cut_from_the_left() {
     );
     assert!(ui::format::width(rows[0].trim_end()) <= 80);
 }
+
+#[test]
+fn a_name_with_a_bidi_override_shows_escaped_within_its_width() {
+    let mut scan = Scan::new();
+    scan.list(
+        ROOT,
+        vec![file("evil\u{202E}txt.exe", 5_000), file("plain", 1_000)],
+    );
+    let mut state = app_state(scan);
+    let screen = draw(&mut state, 80, 24);
+    let joined = screen.join("\n");
+    assert!(!joined.contains('\u{202E}'), "{joined}");
+    let row = row_with(&screen, "evil");
+    assert!(row.contains("evil\\u{202E}txt.exe"), "{row:?}");
+    assert!(storage_analyzer::ui::format::width(row) <= 80, "{row:?}");
+}
