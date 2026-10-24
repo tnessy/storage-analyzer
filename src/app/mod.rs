@@ -114,6 +114,7 @@ fn production_services(root: &Path) -> Services {
         services.history = Arc::new(FileHistory::new(dir));
     }
     services.delete = delete_executor(root);
+    services.disk_sys = Some(Box::new(crate::diskio::sys::FsSys::real()));
     services
 }
 

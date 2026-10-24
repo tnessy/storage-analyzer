@@ -3,7 +3,6 @@ source: tests/ui_snapshots.rs
 expression: "screen(&mut help, 80, 24)"
 ---
  storage-analyzer  /synthetic/root                  Disk usage   ? help   q quit
- [1 Tree]  2 Types  3 Largest  4 Skipped !2
 ╔═ Help ═══════════════════════════════════════════════════════════════════════╗
 ║ Move and view                          Act and scan                          ║
 ║ ↑↓ j k    Move                         d Delete  Delete (asks first)         ║
@@ -23,6 +22,7 @@ expression: "screen(&mut help, 80, 24)"
 ║ --history to remember past scans (keeps one small file in ~/.local/state).   ║
 ║ Hard links count once, in the folder scanned first: totals match du, folder  ║
 ║ sizes may not. Deleting one name of a hard-linked file frees no space.       ║
+║ Disk speed: reads on the disk(s) being scanned, from all programs, not just  ║
+║ this one. Hidden when unavailable (e.g. tmpfs, NFS, overlay, ZFS).           ║
 ╚═════════════════════════════════════════════════════════════ Esc or ? close ═╝
-◌ Scanning  00:00 elapsed
  ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help

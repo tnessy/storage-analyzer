@@ -444,6 +444,27 @@ fn the_help_overlay_fits_80_by_24_in_two_columns_in_unicode_and_ascii() {
             "{text}"
         );
         assert!(text.contains("--history to remember past scans"), "{text}");
+        assert!(text.contains("Hard links count once"), "{text}");
+        // The fourth note (UX §6), wrapped exactly like the mockup.
+        assert!(
+            text.contains(
+                "Disk speed: reads on the disk(s) being scanned, from all programs, not just"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("this one. Hidden when unavailable (e.g. tmpfs, NFS, overlay, ZFS)."),
+            "{text}"
+        );
+        // 22 of the 24 rows, and every line of the overlay is exactly 80 columns.
+        let overlay: Vec<&String> = screen
+            .iter()
+            .filter(|r| r.starts_with(['╔', '║', '╚', '#']))
+            .collect();
+        assert_eq!(overlay.len(), 22, "ascii={ascii}:\n{text}");
+        for row in &overlay {
+            assert_eq!(row.chars().count(), 80, "{row:?}");
+        }
         // The bottom border, with the close hint, is on row 24 or above (index 23).
         let bottom = screen
             .iter()
@@ -464,12 +485,12 @@ fn the_help_overlay_fits_80_by_24_in_two_columns_in_unicode_and_ascii() {
         // Two columns: the right column starts on the same row as the left one.
         let header = screen.iter().find(|r| r.contains("Move and view")).unwrap();
         assert!(header.contains("Act and scan"), "{header}");
-        // 18 rows tall, from the top border to the bottom border.
+        // 22 rows tall, from the top border to the bottom border.
         let top = screen.iter().position(|r| r.contains("Help")).unwrap();
         assert_eq!(
             bottom - top + 1,
-            20,
-            "ascii={ascii}: 18 + the hard-link footer"
+            22,
+            "ascii={ascii}: 18 + the hard-link and disk-speed footers"
         );
         // The hard-link footer, wrapped as in UX §6, and every overlay line exactly 80 columns.
         assert!(

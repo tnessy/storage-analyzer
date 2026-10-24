@@ -60,6 +60,7 @@ pub fn lines(ascii_keys: bool) -> Vec<String> {
     out.extend(wrap(copy::HELP_MAP_NOTE, footer_width));
     out.extend(wrap(copy::HELP_ETA_FOOTER, footer_width));
     out.extend(wrap(copy::HELP_HARD_LINK_NOTE, footer_width));
+    out.extend(wrap(copy::HELP_DISK_NOTE, footer_width));
     out
 }
 
@@ -102,9 +103,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nineteen_entries_fit_the_twenty_row_overlay() {
+    fn nineteen_entries_and_four_notes_make_a_22_row_overlay() {
         assert_eq!(copy::HELP_LEFT.len() + copy::HELP_RIGHT.len(), 19);
         assert!(copy::HELP_RIGHT.iter().any(|e| e.0 == "v"));
-        assert!(lines(false).len() + 2 <= 20, "{}", lines(false).len());
+        assert_eq!(lines(false).len() + 2, 22, "{}", lines(false).len());
+        assert_eq!(lines(true).len() + 2, 22);
     }
 }

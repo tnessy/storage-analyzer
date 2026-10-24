@@ -339,6 +339,7 @@ fn rig(flags: &[&str], store: Arc<dyn HistoryStore>, inodes: Option<u64>) -> Rig
         history: store,
         inodes: Box::new(FakeInodes(inodes)),
         read_bytes: Box::new(storage_analyzer::diskio::NoSource),
+        disk_sys: None,
         delete: None,
     });
     let mut rig = Rig { app, clock, tx };

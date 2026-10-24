@@ -111,6 +111,9 @@ pub struct Services {
     pub inodes: Box<dyn InodeSource>,
     /// Where the disk read speed comes from (`NoSource`: the field stays hidden).
     pub read_bytes: Box<dyn crate::diskio::ReadBytesSource>,
+    /// The `/proc` and `/sys` the `diskio` thread reads (`None`: no thread, `read_bytes` is used
+    /// as it is). The real app passes `FsSys::real()`.
+    pub disk_sys: Option<Box<dyn crate::diskio::sys::SysView>>,
     /// A running executor and the channel its events arrive on (none: deleting is unavailable).
     pub delete: Option<(
         crate::delete::DeleteHandle,
@@ -145,6 +148,7 @@ impl Default for Services {
             history: Arc::new(NoHistory),
             inodes: Box::new(NoInodes),
             read_bytes: Box::new(crate::diskio::NoSource),
+            disk_sys: None,
             delete: None,
         }
     }
@@ -174,6 +178,8 @@ pub struct App<B: Backend, E: EventSource, C: Clock> {
     delete_rx: Option<Receiver<crate::delete::DeleteEvent>>,
     /// A frame must be drawn now, ignoring the data-redraw cap (a delete outcome).
     force_draw: bool,
+    /// The `diskio` sampler thread, if one was started.
+    diskio: Option<crate::diskio::thread::DiskioHandle>,
 }
 
 fn io_err<T: std::error::Error>(e: T) -> io::Error {
@@ -211,6 +217,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             last_spinner_frame: 0,
             delete_rx: None,
             force_draw: false,
+            diskio: None,
         }
     }
 
@@ -259,8 +266,21 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             self.state.delete_handle = Some(handle);
             self.delete_rx = Some(rx);
         }
+        self.start_disk_speed();
         self.start_eta_sources();
         Ok(())
+    }
+
+    /// Frame 0 is on screen: now start the thread that watches the disk(s) under the scan root.
+    /// It resolves the devices itself (that can block), so the loop never waits for it.
+    fn start_disk_speed(&mut self) {
+        let Some(view) = self.services.disk_sys.take() else {
+            return;
+        };
+        let root = self.state.model.path(self.state.model.root());
+        let (handle, source) = crate::diskio::thread::DiskioHandle::start(root, view);
+        self.services.read_bytes = Box::new(source);
+        self.diskio = Some(handle);
     }
 
     /// Frame 0 is on screen: now look for an expected total. The history file is read on its own
@@ -365,6 +385,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             rx,
             mut state,
             delete_rx,
+            diskio,
             ..
         } = self;
         let interrupted = state
@@ -376,6 +397,10 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         drop(rx);
         if let Some(handle) = state.scan_handle {
             handle.shutdown();
+        }
+        // Last, and bounded: a thread stuck in a read is left behind.
+        if let Some(mut diskio) = diskio {
+            diskio.stop();
         }
         interrupted
     }

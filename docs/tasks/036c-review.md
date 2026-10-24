@@ -1,0 +1,14 @@
+# T036c review (Heimdall, 2026-10-24): APPROVED, committed (hash-checked snapshot)
+- **Fresh evidence** (clean worktree, T036c files only):
+  - fmt ok, whole-tree clippy clean;
+  - every target passes (app_loop 23, …); release build ok;
+  - **app_loop, ui_status and ui_accessibility 50/50 each.**
+- **Wiring:**
+  - `diskio` starts after frame 0 (`DiskioHandle::start(root, view)`, and its `DeviceStatSource` replaces `NoSource`);
+  - `finish` stops it last, through T036b's bounded `stop()`;
+  - no `add_mount`, no generation, no re-resolution;
+  - `diskio` panics only hide the field.
+- **Help:** 22 rows, 80 columns, 19 entries plus four footer notes in Unicode and ASCII; check 19(c) finds `Disk speed:`.
+- **Engineer-2's question, ruled:** `quitting_while_the_disk_thread_is_stuck_in_a_read_returns_within_two_seconds` *does* catch an unbounded stop. My breakage (T036b's `STOP_WAIT` 200 ms → 5 s) makes it fail at 5.10 s (restored with `cmp`). It guards the integration end to end, which is what it should do; a "join in `finish`" breakage isn't expressible, because the handle keeps the `JoinHandle` private.
+- The panic test was breakage-checked by engineer-2 (`check_scan_health` taking every thread's panics → fails).
+- **Runbook:** MC-2b compares against `/sys/dev/block/<maj:min>/stat` or `iostat`, expects nothing on `/tmp`, and checks the help note.

@@ -1,5 +1,7 @@
 //! Headless runs of the full app loop (T015): first paint, input priority, elapsed, redraw cap, quit.
 
+#[path = "support/fake_sys.rs"]
+mod fake_sys;
 #[path = "support/synthetic.rs"]
 mod synthetic;
 
@@ -21,7 +23,7 @@ use ratatui::layout::{Position, Size};
 use storage_analyzer::APP_ID;
 use storage_analyzer::app::cli;
 use storage_analyzer::app::event_loop::{
-    APPLY_BUDGET, App, Clock, EventSource, Flow, ScanLaunch, ScanStarter,
+    APPLY_BUDGET, App, Clock, EventSource, Flow, ScanLaunch, ScanStarter, Services,
 };
 use storage_analyzer::app::state::AppState;
 use storage_analyzer::app::terminal::{Guard, PanicSlot};
@@ -219,6 +221,10 @@ fn rig(starter: ScanStarter) -> Rig {
 
 /// `make` receives the backend's draw counter, so a starter can see how many frames exist.
 fn rig_with(make: impl FnOnce(&Rc<Cell<u32>>) -> ScanStarter) -> Rig {
+    rig_full(make, Services::default())
+}
+
+fn rig_full(make: impl FnOnce(&Rc<Cell<u32>>) -> ScanStarter, services: Services) -> Rig {
     let clock = FakeClock::default();
     let script = Script::new(&clock);
     let draws = Rc::new(Cell::new(0));
@@ -240,7 +246,8 @@ fn rig_with(make: impl FnOnce(&Rc<Cell<u32>>) -> ScanStarter) -> Rig {
         starter,
         Arc::new(AtomicBool::new(false)),
         panics.clone(),
-    );
+    )
+    .with_services(services);
     Rig {
         panics,
         app,
@@ -861,4 +868,158 @@ fn a_pending_top_rebuild_is_stepped_by_the_loop_and_input_never_waits_more_than_
             .iter()
             .any(|w| *w > Duration::from_millis(10))
     );
+}
+
+// ---- disk speed wiring (T036c) ----
+
+/// ext4 on `sda1`, mounted at `/`, which holds the synthetic scan root.
+fn disk_machine() -> fake_sys::Fake {
+    let f = fake_sys::Fake::new();
+    f.block_device("/dev/sda1", 8, 1)
+        .kernel_device(8, 1, "sda1", 1_000)
+        .mount("/", "ext4", "/dev/sda1");
+    f
+}
+
+/// Lists the root once and keeps the sender, so the test can end the scan with `Done` later.
+fn listing_starter(tx_slot: Rc<RefCell<Option<SyncSender<ScanMsg>>>>) -> ScanStarter {
+    Box::new(move |launch: ScanLaunch| {
+        launch
+            .tx
+            .send(synthetic::listing(
+                NodeId::ROOT,
+                1,
+                vec![synthetic::entry(
+                    "a",
+                    storage_analyzer::types::Kind::Dir,
+                    4096,
+                )],
+            ))
+            .unwrap();
+        *tx_slot.borrow_mut() = Some(launch.tx);
+        None
+    })
+}
+
+fn wait_for_first_disk_sample(machine: &fake_sys::Fake) {
+    let started = Instant::now();
+    while machine
+        .controls
+        .stat_reads
+        .load(std::sync::atomic::Ordering::SeqCst)
+        == 0
+    {
+        assert!(started.elapsed() < Duration::from_secs(5), "no sample");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::thread::sleep(Duration::from_millis(30));
+}
+
+#[test]
+fn the_real_wiring_shows_the_disk_field_in_a_scan_and_hides_it_at_done() {
+    let machine = disk_machine();
+    let slot = Rc::default();
+    let mut rig = rig_full(
+        |_| listing_starter(Rc::clone(&slot)),
+        Services {
+            disk_sys: Some(Box::new(machine.view())),
+            ..Services::default()
+        },
+    );
+    rig.app.start().unwrap();
+    wait_for_first_disk_sample(&machine);
+    // The counter does not move: a measured zero, which is a real value and shows.
+    run_until(
+        &mut rig,
+        Duration::from_millis(3_100),
+        Duration::from_millis(100),
+    );
+    assert!(
+        status_line(&rig).contains("disk       0 B/s"),
+        "{}",
+        status_line(&rig)
+    );
+    slot.borrow()
+        .as_ref()
+        .unwrap()
+        .send(synthetic::done(false))
+        .unwrap();
+    run_until(
+        &mut rig,
+        Duration::from_millis(3_600),
+        Duration::from_millis(100),
+    );
+    let status = status_line(&rig);
+    assert!(status.contains("Done"), "{status}");
+    assert!(!status.contains("disk"), "{status}");
+    rig.app.finish();
+}
+
+#[test]
+fn quitting_while_the_disk_thread_is_stuck_in_a_read_returns_within_two_seconds() {
+    let machine = disk_machine();
+    // Every read of a counter blocks until the test lets go.
+    *machine.controls.gate.0.lock().unwrap() = true;
+    let mut rig = rig_full(
+        |_| idle_starter(),
+        Services {
+            disk_sys: Some(Box::new(machine.view())),
+            ..Services::default()
+        },
+    );
+    rig.app.start().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    rig.script.key_now(KeyCode::Char('q'));
+    rig.script.key_now(KeyCode::Char('y'));
+    let t0 = Instant::now();
+    assert_eq!(rig.app.step().unwrap(), Flow::Quit);
+    rig.app.finish();
+    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+    *machine.controls.gate.0.lock().unwrap() = false;
+    machine.controls.gate.1.notify_all();
+}
+
+/// A `/proc` and `/sys` that panics when read.
+struct Panicking;
+
+impl storage_analyzer::diskio::sys::SysView for Panicking {
+    fn read_to_string(&self, _: &std::path::Path) -> io::Result<String> {
+        panic!("diskio test panic");
+    }
+    fn read_link(&self, _: &std::path::Path) -> io::Result<std::path::PathBuf> {
+        panic!("diskio test panic");
+    }
+    fn read_dir_names(&self, _: &std::path::Path) -> io::Result<Vec<std::ffi::OsString>> {
+        panic!("diskio test panic");
+    }
+    fn stat_rdev(&self, _: &std::path::Path) -> io::Result<Option<u64>> {
+        panic!("diskio test panic");
+    }
+}
+
+#[test]
+fn a_panic_on_the_diskio_thread_does_not_stop_the_scan_or_show_a_dialog() {
+    let mut rig = rig_full(
+        |_| idle_starter(),
+        Services {
+            disk_sys: Some(Box::new(Panicking)),
+            ..Services::default()
+        },
+    );
+    rig.app.start().unwrap();
+    // The thread panics (here without the app's hook), and the hook's record, if any, is tagged.
+    rig.panics
+        .record(Some("diskio".to_owned()), "panicked at diskio:1:1".into());
+    std::thread::sleep(Duration::from_millis(100));
+    rig.clock.advance(Duration::from_secs(3));
+    rig.app.step().unwrap();
+    let screen = text(&rig);
+    assert!(!screen.contains("Scan error"), "{screen}");
+    assert!(
+        status_line(&rig).starts_with("◌ Starting…  00:03"),
+        "{}",
+        status_line(&rig)
+    );
+    assert!(!status_line(&rig).contains("disk"));
+    rig.app.finish();
 }
