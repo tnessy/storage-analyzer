@@ -515,15 +515,18 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ║ end in / and get their own colour, never a file-type colour in this view.    ║
 ║ ETA appears once a previous complete scan of this root is known. Run with    ║
 ║ --history to remember past scans (keeps one small file in ~/.local/state).   ║
+║ Hard links count once, in the folder scanned first: totals match du, folder  ║
+║ sizes may not. Deleting one name of a hard-linked file frees no space.       ║
 ╚═════════════════════════════════════════════════════════════ Esc or ? close ═╝
 ```
-- That is 18 rows, which leaves 6 spare at 24.
+- That is 20 rows, which leaves 4 spare at 24.
+- **Hard-link footer (design §3.4, T023):** this is the only place that explains *attribution*, that is, which folder a hard-linked file is charged to. The delete dialog's hard-link line (§5.3) still gives the exact per-delete warning (`Space freed may be less: N files have other hard links.`).
 - **ASCII key column:**
   - `↑↓ j k` becomes `Up Dn j k`.
   - `→ l` becomes `Right l`, and `← h` becomes `Left h`.
   - `⏎` becomes `Enter`, and `⌫ -` becomes `Bksp -`.
   - Borders become `#`, and the descriptions are unchanged.
-- **Help copy:** these footer lines replace the earlier one-line ETA note and the two-line map note in §7.
+- **Help copy:** these footer lines replace the earlier one-line ETA note and the two-line map note in §7. The footer has three notes: map colours, ETA and hard links.
 
 ## 7. Visual system
 - **Text and chrome:** the terminal's default foreground and background. Dim text is used only for decoration such as tree guides, never for information.
@@ -758,5 +761,5 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
 19. **Key hints and help:**
     - **(a) Hint strings:** at 80 columns, in both Unicode and ASCII mode, each context's hint line equals the §6 string exactly. In ASCII mode at 80 columns, the Tree line ends `p first  ? help`.
     - **(b) No single-letter key names:** in ASCII mode, no rendered buffer contains the tokens ` E ` or ` B ` used as key names. Check this with a regex for `(^| )[EB] (zoom|up|show)`.
-    - **(c) Help at 80×24:** the overlay is fully drawn. The bottom border with `Esc or ? close` is on row 24 or above, and all 18 entries of the §6 help mockup appear in it, in Unicode and in ASCII mode.
+    - **(c) Help at 80×24:** the overlay is fully drawn. The bottom border with `Esc or ? close` is on row 24 or above, and all 18 entries of the §6 help mockup appear in it, along with the three footer notes (it must contain `Hard links count once`), in Unicode and in ASCII mode.
     - **(d) Help keys:** `Esc` and `?` close it; `q` opens the quit dialog; `j` changes nothing.
