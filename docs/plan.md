@@ -64,9 +64,10 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T028 | e1 | Walker race: a rescan right after a stop can be lost (architect, from the T021 review) | T006, T020, T027 |
 | T028b | e1 | rescan_many + cancel flag captured under lock (architect low findings on T028) | T028 |
 | T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
-| T030 | e1 | (proposed) Remove the 118–147 ms apply-tick spikes; `recompute_top` stall | T009 |
-| T031 | e1 | (proposed) Explain RSS 4.3 vs 2.4 GiB with ≥ 2 threads (heap profile) | T009 |
-| T032 | e2 | (proposed) Cache the sorted children of huge folders | T016, T009 |
+| T030 | e1 | Tick-spike diagnosis + split listings over 8,192 entries (`last` flag); chunked arrays only if growth is confirmed | T009 |
+| T031 | e1 | RSS 4.3 vs 2.4 GiB: malloc_stats/trim, alternative allocator, then fix (allocator or per-listing name buffer) | T009 |
+| T032 | e2 | Partial sort plus cached order for huge expanded folders (≤ 2 Hz while scanning) | T016, T009 |
+| T033 | e1 → e2 | Resumable `recompute_top` (≤ 5 ms/tick) + Largest `updating…` (pending architect/UX details) | T030 |
 | T026 | e2 | Tile colour assignment, option C: files by type, folders by identity (replaces T025's shades) | T025 |
 
 ### Wave 1: foundations (parallel across engineers)
@@ -99,7 +100,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T023 | e2 | Size toggle, help, too-small, NO_COLOR/ASCII/contrast, snapshot set | T017, T018 |
 
 ### Suggested order per engineer
-- **engineer-1** (re-ordered 2026-10-23 to unblock the delete feature): done: T001, T003, T024, T004, T006, T005, T010. **Next: T008 → T028b → T009.** (T028 is done.) (T012, T011, T027 and T007 are done.) T012 and T011 are the critical path to T021 (the delete UI). T007 (M8 du parity) follows immediately after. The R1/R2 spikes (T008, T009) come last; they measure targets, not gates.
+- **engineer-1** (re-ordered 2026-10-23 to unblock the delete feature): done: T001, T003, T024, T004, T006, T005, T010. **Next: T030 → T031 → T033 (model).** (T008, T028b and T009 are done.) Thread default stays `min(nproc, 8)`. A cold-cache run at 4 vs 8 threads needs the **user** (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches` before each run); if 4 is within ~10 % of 8, the default becomes 4. (T012, T011, T027 and T007 are done.) T012 and T011 are the critical path to T021 (the delete UI). T007 (M8 du parity) follows immediately after. The R1/R2 spikes (T008, T009) come last; they measure targets, not gates.
 - **engineer-2:** T002 → T013 → T014 → T015 → T016 → **T017 → T018 → T025 → T026**, T023, **T023b** (before T022 if T022 hasn't started, otherwise right after it) → T022 → T019 → T020 → T023 → T021. The user approved moving T017/T018 ahead of T022/T019 on 2026-10-23. T022 and T019 are on hold until T017 and T018 are done. T017 therefore lands before R5: if R5 later recommends a different relayout policy, it is a follow-up to T017.
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.

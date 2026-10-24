@@ -457,7 +457,10 @@ Displayed states (the pure function `eta::view(EtaInput) -> EtaView`). The statu
 These are the shared contracts. Define them first.
 ```rust
 enum ScanMsg {
-    Listing { dir: NodeId, first_id: NodeId, entries: Vec<RawEntry> },
+    Listing { dir: NodeId, first_id: NodeId, entries: Vec<RawEntry>, last: bool },
+                                                         // T009 follow-up: a dir with > 8,192 entries is sent as several
+                                                         // parts (≤ 8,192 each, contiguous ids). Only the `last` part
+                                                         // marks the dir DONE; child jobs are enqueued after `last`.
     DirIssue { dir: NodeId, op: Op, kind: IssueKind },   // counts as "listed" for pending_dirs
     Cancelled { dir: NodeId },                           // job dropped by ScanControl (skip or delete)
     Identity { node: NodeId, entry: RawEntry },          // plan D11: rescan root re-statx'd (NOFOLLOW) before its Listing.
@@ -554,7 +557,10 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 | Treemap relayout while scanning | ≤ 2 Hz | ADR-006 |
 | Delete dialog hard-link check | ≤ 50 ms per 1 M subtree nodes | §3.10, R2 |
 | Memory | ≤ 120 B/entry average incl. names (**assumption**). That is about 600 MB at 5 M entries, against 60 GiB RAM | ncdu-style compact nodes. Spike R1 |
-| Threads | `min(nproc, 8)` walkers + 1 delete + main | gdu/dust precedent. Tune later |
+| Threads | `min(nproc, 8)` walkers + 1 delete + main | gdu/dust precedent. T009 (warm): wall time flat from 4 to 16 threads; above 4 the single apply thread is the limit and backpressure engages (by design; blocked workers cost 1–3 % of a core). Kept at 8 until a cold-cache run decides |
+| Max work per apply step | No single `apply` call > ~5 ms: listings split at 8,192 entries; node arrays never copy-grow on the main thread (chunked storage, if T009's growth hypothesis is confirmed) | T009: tick max 118–147 ms vs 50 ms input target |
+| Post-delete index refresh | `recompute_top` is resumable, ≤ 5 ms per tick across ticks; the Largest view shows `updating…` meanwhile | T009: 0.4–0.6 s at 20 M entries |
+| Process memory | Track RSS, not only model bytes. T009: 4.3 GiB process vs ~2.4–2.9 GiB model at 19.85 M entries (≥ 2 threads); diagnosis pending | T009 |
 | Throughput | No target in v1 | brief |
 | Cost | Local only, $0 | — |
 
@@ -597,7 +603,7 @@ enum EtaView { Estimating, Eta { remaining: Duration, fraction: f32, source: Eta
 | # | Risk | Cheapest spike that retires it |
 |---|---|---|
 | R1 | Memory per entry exceeds budget at real scale. **Note:** R3 measured 19.46 M entries in the user's `$HOME`, so about 2.3 GB at 120 B/entry | Fill the arena with **20 M** synthetic nodes (realistic name lengths), measure RSS. About half a day |
-| R2 | Main-thread apply can't keep up (backlog, slow scan) or the top-N recompute is too slow | Walker + apply headless on `/usr` and `$HOME`. Log produce vs apply rate and per-tick apply time |
+| R2 | ~~Apply can't keep up~~ **Measured (T009):** apply runs at 2.7 M entries/s, enough for 20 M entries. The open issues are tail ticks (118–147 ms), `recompute_top` (0.5 s) and process RSS (+1.8 GiB with ≥ 2 threads); see §5 | Follow-ups: tick instrumentation, split listings, resumable `recompute_top`, an allocator diagnosis |
 | R3 | ~~Knuth probe ETA too noisy~~ **Retired: failed** (`spikes/r3-probe/REPORT.md`); probe removed, ADR-010 | — |
 | R3b | ~~Pending-dirs-based estimator~~ **Closed, not pursued.** Variant B also failed (K=256 medians 0.07 / 0.35 / 0.63). `seen + pending_dirs` is only a lower bound (0.12 / 0.51 / 0.90 of truth on $HOME). See ADR-010 | — |
 | R4 | btrfs specifics: subvolume `st_dev`, `-x` semantics, `du` parity on compressed files | Run `du -sx` vs `du -s` on `$HOME`. Compare to walker totals |

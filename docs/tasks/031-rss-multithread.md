@@ -1,14 +1,19 @@
-# T031 (PROPOSED, recommended): Explain the RSS 4.3 GiB (≥ 2 threads) vs 2.4 GiB (1 thread)
+# T031: Diagnose (then fix) RSS 4.3 GiB with ≥ 2 threads vs 2.4 GiB with 1
 
-- **Engineer:** engineer-1. **Depends on:** T009. **Status:** proposed (investigation first; a fix only if the cause is clear).
+- **Engineer:** engineer-1. **Depends on:** T009. **Schedule:** after T030.
+- **Status:** v1 (team lead, per the architect's assessment; design §5 "Process memory").
 
-## Problem
-The same `$HOME` data gives 4.3 GiB RSS with ≥ 2 walker threads, but 2.4 GiB with 1 thread. The model alone measured 2.85 GiB in T008, and RSS is what the user sees. `MALLOC_ARENA_MAX=1` and `=2` don't change it, and neither does the channel size.
+## Diagnosis, in this order
+1. **At the end of a harness run** (`--threads 1` and `--threads 4`, on `$HOME`): call glibc `malloc_stats()` and then `malloc_trim(0)`, and re-read RSS. If "in use" ≈ the model size and the trim frees most of the gap, the gap is **fragmentation, not a leak**. Use `libc` FFI **in the example only**; ask Heimdall to add the `libc` dev-dependency.
+2. **Re-run with mimalloc or jemalloc** as the global allocator, **in the example only** (a dev-dependency, via Heimdall), at 1 and 4 threads.
+3. **`heaptrack`, only if 1–2 are inconclusive.**
 
-## Acceptance
-1. **A heap profile** (`heaptrack` or `valgrind --tool=massif`, whichever is installed; ask the user if neither is) of `scan_harness $HOME --threads 1` vs `--threads 4`. Report the top allocation sites at peak.
-2. **Name the cause**, with evidence. Candidates to check: per-worker buffers, the `RawDir` 32 KiB buffers, the queue's `PathBuf`s at the ~500 k frontier, `Vec<RawEntry>` held in the channel, and allocator fragmentation from cross-thread frees.
-3. **If the fix is small and local to `scan/`,** implement it with a test and report RSS before and after. Otherwise, write up the options for the architect.
+**Likely cause (architect):** with 2+ threads the channel stays full, so many short-lived allocations (per-name heap blocks, entry vectors, child-job paths) interleave with ~2 M long-lived per-folder child lists, which fragments the heap.
 
-## Files owned
-`src/scan/**` (only for a small fix), `spikes/R31-REPORT.md`.
+## Fix (depends on the result; report before implementing)
+- **(a)** Swap the global allocator for the binary: one dependency. **That needs the architect's and owner's OK**, because of ADR-001 and the dependency policy.
+- **or (b)** Stop allocating per name in `RawEntry`: one byte buffer plus offsets per listing. That is a **contract change** to `RawEntry`, decided with Heimdall and the architect before you start.
+
+## Deliverables
+- `spikes/R31-REPORT.md` with RSS, "in use", and RSS after trim for each configuration.
+- The recommended fix; implemented only after approval.
