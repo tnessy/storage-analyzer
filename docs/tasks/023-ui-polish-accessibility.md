@@ -47,3 +47,39 @@ Include the 8 **alternate** tile shades (`ux/spec.md` §7) in the 256-colour map
 
 ## Note from T026
 The alternate shades are gone (T026). Colour depth uses the §7 option-C palette's xterm-256 column, which T026 adds to `theme.rs`. The help overlay renders T026's two map-colour lines from `copy.rs`. The Types swatch must show in 256-colour mode, and be hidden under NO_COLOR.
+
+## Round 2 (2026-10-23): required before T023 is committed
+T023 is not committed yet. These items complete it, so it lands once, correct. Tests first; for code written before its tests, give one targeted breakage per criterion (README rule).
+
+### R2-1. 256-colour labels (from `023-review.md` item 1)
+In `ColorDepth::Indexed256`, label colours must be indexed or ANSI, never `Color::Rgb` (for example `Color::Indexed(16)` / `Color::Indexed(231)`, or `Color::Black` / `Color::White`).
+- Re-check check 3's 256-colour contrast with the label colours actually used.
+- **Test:** render a scanning screen in `Indexed256`, and assert that no cell has an RGB fg or bg.
+
+### R2-2. Help overlay: two columns, no scrolling (UX §6, **replaces** `023-review.md` item 2, the scrolling)
+- **Layout:** 80×24, centred, inner width 76, two 37-cell columns with a 2-cell gap. Each entry has a 10-cell key column and a description of ≤ 26 cells.
+  - "Move and view" on the left, "Act and scan" on the right.
+  - A 4-line full-width footer with the map-colour note and the ETA/`--history` note, **exact wording in UX §6**.
+  - 18 rows in total, with the bottom border title `Esc or ? close`.
+  - The footer replaces the earlier map-colour and ETA constants from T026. Delete those constants; don't leave them unused.
+- **ASCII key column:** `Up Dn j k`, `Right l`, `Left h`, `Enter`, `Bksp -`; borders `#`; descriptions unchanged.
+- **Keys:** `Esc` and `?` close; `q`/`Ctrl-C` open the quit dialog; every other key is ignored.
+
+### R2-3. ASCII key names and hint strings (UX §6, §7)
+- **Hint strings:** exactly the §6 table, in Unicode and ASCII. The drop rule removes whole groups from the right and never drops `? help`.
+  - At 80 columns in ASCII, the Tree line drops `x skip` and ends `p first  ? help` (76 cells).
+- **ASCII mode, everywhere** (hints, messages, dialogs, map title): `⏎` → `Enter` and `⌫` → `Bksp` as **whole words**. For example, `Press Enter to go up.` and ` · Enter goes up to /home/nss`.
+  - Arrows are **never** folded character by character; contexts that name arrows use the letter-key wording.
+  - Single letters such as `E` or `B` standing for keys are forbidden.
+- **More fallbacks:** `…` → `...`, `·` → `-`, `›` → `>`.
+- **Done and Stopped lines:** `✓` and `■` are dropped and the word stays (`Done in 03:51`, `Stopped at 01:12`).
+
+### Tests (check 19, plus R2-1)
+- **(a)** At 80 columns, each context's hint line equals the §6 string exactly, in both modes. ASCII Tree ends `p first  ? help`.
+- **(b)** In ASCII mode, no rendered buffer matches the regex `(^| )[EB] (zoom|up|show)`. Run it over the Tree, Map, Lists, the `..`-row message and the map title.
+- **(c)** At 80×24 the help overlay is fully drawn: the bottom border with `Esc or ? close` is within row 24, and all 18 entries appear, in Unicode and ASCII.
+- **(d)** In help, `Esc` and `?` close it, `q` opens the quit dialog, and `j` changes nothing.
+- **(e)** In ASCII mode, the Done line contains `Done in` and no `✓`; the Stopped line contains `Stopped at` and no `■`.
+- **R2-1:** the Indexed256 test above.
+
+**Files:** the same as T023, plus `src/ui/ascii.rs`, `src/ui/help.rs` and `src/ui/hints.rs` (new in T023), and `tests/ui_accessibility.rs` / `tests/ui_snapshots.rs`. Regenerate and review the affected snapshots.

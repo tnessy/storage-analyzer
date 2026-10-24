@@ -44,3 +44,6 @@ T023's other criteria are met:
 - 20 snapshots, Unicode and ASCII;
 - the spinner, frozen with `--no-animation`;
 - no Types side panel at ≥ 120 columns.
+
+## Update 2026-10-23: UX resolved the open points
+UX answered both open points (`ux/spec.md` §6, §7, check 19). **Item 2 changes:** the help overlay becomes a fixed two-column layout that fits 80×24, with **no scrolling**, so ignore the scrolling request. Item 1 (256-colour labels) stands. The ASCII hint wording is settled (letter keys, `Enter`/`Bksp`). All of it is collected as **"Round 2"** in `023-ui-polish-accessibility.md`. T023 will be committed once, after round 2.

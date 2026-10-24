@@ -475,8 +475,55 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 - Lists: `↑↓ move ⏎ show in tree d delete ? help`
 - If the hints don't fit, they are dropped from the right, but `? help` is always kept.
 
-**Help overlay (`?`), ETA note** (shown at the bottom of the overlay, one line, always present):
-`ETA appears when a previous complete scan of this root is known. Run with --history to remember scans between sessions (stores one small file under ~/.local/state).`
+**Exact hint strings.** Each hint is one group, groups are joined by two spaces, and the line has a 1-cell left margin. Lengths include the margin.
+
+| Context | Unicode (length) | ASCII fallback (length) |
+|---|---|---|
+| Tree | ` ↑↓ move  ←→ fold  ⏎ zoom  ⌫ up  Tab map  d delete  p first  x skip  ? help` (75) | ` j/k move  h/l fold  Enter zoom  Bksp up  Tab map  d delete  p first  x skip  ? help` (84 → at 80 columns `x skip` is dropped, giving 76) |
+| Map | ` arrows move  ⏎ zoom  ⌫ up  Tab tree  d delete  p first  ? help` (63) | ` hjkl move  Enter zoom  Bksp up  Tab tree  d delete  p first  ? help` (68) |
+| Lists | ` ↑↓ move  ⏎ show in tree  d delete  ? help` (42) | ` j/k move  Enter show in tree  d delete  ? help` (47) |
+
+- **Drop rule:** remove whole groups from the right, skipping `? help`, until the line fits.
+- **ASCII hints name the letter keys** (`j/k`, `h/l`, `hjkl`) rather than spelling out the arrow keys. The arrow keys still work; the hint only needs one working key, and the letters are shorter.
+
+**Help overlay (`?`).**
+- **Size and placement:** 80×24, centred, so it covers the whole screen at the minimum size.
+- **Layout:**
+  - **Two columns, no scrolling.** Inner width is 76: two 37-cell columns with a 2-cell gap. Each entry has a 10-cell key column and a description of ≤ 26 cells.
+  - Below the columns, a full-width footer.
+- **Closing and other keys:**
+  - `Esc` and `?` close the overlay.
+  - `q` and `Ctrl-C` open the quit dialog as usual (M12).
+  - All other keys are ignored.
+- **Growth:** if the content ever grows past 24 rows, check 19 fails, so the overflow is caught at review rather than clipped.
+
+```
+╔═ Help ═══════════════════════════════════════════════════════════════════════╗
+║ Move and view                          Act and scan                          ║
+║ ↑↓ j k    Move                         d Delete  Delete (asks first)         ║
+║ PgUp PgDn Page                         p         Scan this folder first      ║
+║ g G       Top / bottom                 x         Skip this folder's scan     ║
+║ → l       Expand / into                r         Resume / rescan folder      ║
+║ ← h       Collapse / parent            s         Stop the whole scan         ║
+║ ⏎         Zoom in, scan it first       ?         Show / hide this help       ║
+║ ⌫ -       Up one level                 q Ctrl-C  Quit (asks first)           ║
+║ Tab       Switch tree / map            Esc       Close dialog or help        ║
+║ 1 2 3 4   Tree Types Largest Skipped                                         ║
+║ a         Disk usage / apparent                                              ║
+║                                                                              ║
+║ Map: files are coloured by type; the tag shows it (e.g. [V] video). Folders  ║
+║ end in / and get their own colour, never a file-type colour in this view.    ║
+║ ETA appears once a previous complete scan of this root is known. Run with    ║
+║ --history to remember past scans (keeps one small file in ~/.local/state).   ║
+╚═════════════════════════════════════════════════════════════ Esc or ? close ═╝
+```
+- That is 18 rows, which leaves 6 spare at 24.
+- **ASCII key column:**
+  - `↑↓ j k` becomes `Up Dn j k`.
+  - `→ l` becomes `Right l`, and `← h` becomes `Left h`.
+  - `⏎` becomes `Enter`, and `⌫ -` becomes `Bksp -`.
+  - Borders become `#`, and the descriptions are unchanged.
+- **Help copy:** these footer lines replace the earlier one-line ETA note and the two-line map note in §7.
 
 ## 7. Visual system
 - **Text and chrome:** the terminal's default foreground and background. Dim text is used only for decoration such as tree guides, never for information.
@@ -526,9 +573,7 @@ The Okabe-Ito set has only 7 hues, and file types use all 7. So no *global* spli
 - **NO_COLOR and monochrome:** no fills. The grout frames separate the tiles; `/` versus `[T]` tells folders from files. R and the memory are still computed, but unused.
 - **Legend:**
   - The Types view shows a 2-cell swatch before each category row in truecolor and 256-colour. With NO_COLOR it shows only the tag.
-  - The help overlay adds two lines:
-    - `Map: files are coloured by type (tag shows it, e.g. [V] video). Folders end in / and get their own colour,`
-    - `never one used by a file type in the same view.`
+  - The help overlay carries the map-colour note in its footer (§6, exact wording there).
 - **Not used:**
   - hatching or pattern fills (they hurt label legibility);
   - hues outside Okabe-Ito (not validated as colour-blind safe);
@@ -544,7 +589,12 @@ The Okabe-Ito set has only 7 hues, and file types use all 7. So no *global* spli
 - The user chose C.
 
 - **Color depth:** truecolor if `COLORTERM` is `truecolor` or `24bit`; otherwise the xterm-256 column of the §7 palette; otherwise monochrome.
-- **ASCII fallback** (no Unicode or `LANG=C`): `◌`→`~`, `▲`→`^`, `⊘`→`-`, `≥`→`>=`, `▾▸`→`-+`, `█…`→`#`, double border→`#`, single border→`+-|`.
+- **ASCII fallback** (no Unicode or `LANG=C`):
+  - **Glyphs:** `◌`→`~`, `▲`→`^`, `⊘`→`-`, `≥`→`>=`, `▾▸`→`-+`, `█…`→`#`, `…`→`...`, `·`→`-`, `›`→`>`.
+  - **Done and Stopped lines:** `✓` and `■` are dropped and the word stays (`Done in 03:51`, `Stopped at 01:12`).
+  - **Borders:** double→`#`, single→`+-|`.
+  - **Key names in all copy** (hints, messages, dialogs, map title): `⏎`→`Enter` and `⌫`→`Bksp`. Arrows are not folded character by character; contexts that name arrows use the letter-key wording in §6. For example, `Press ⏎ to go up.` becomes `Press Enter to go up.`, and ` · ⏎ goes up to /home/nss` becomes ` · Enter goes up to /home/nss`.
+  - **Never** single letters like `E` or `B` standing for keys.
 - **Motion:** spinner at no more than 10 fps; data redraws at no more than 10 Hz; map relayout at no more than 2 Hz (design §5). Nothing blinks.
 
 ### 7.1 Number formats (exact; one function each, tested)
@@ -705,3 +755,8 @@ Target: the intent of WCAG 2.2 AA where it maps to a TUI (1.4.1, 1.4.3, 2.1.1, 2
     - `d`, `p`, `x` and `r` on `..` produce the §3.2.2 message, no `DeleteRequest`, and no `ScanControl` change.
     - With 60 children, `..` is not inside the aggregate.
     - With `..` selected, the map shows the same tiles as with the view root row selected, and no tile is highlighted.
+19. **Key hints and help:**
+    - **(a) Hint strings:** at 80 columns, in both Unicode and ASCII mode, each context's hint line equals the §6 string exactly. In ASCII mode at 80 columns, the Tree line ends `p first  ? help`.
+    - **(b) No single-letter key names:** in ASCII mode, no rendered buffer contains the tokens ` E ` or ` B ` used as key names. Check this with a regex for `(^| )[EB] (zoom|up|show)`.
+    - **(c) Help at 80×24:** the overlay is fully drawn. The bottom border with `Esc or ? close` is on row 24 or above, and all 18 entries of the §6 help mockup appear in it, in Unicode and in ASCII mode.
+    - **(d) Help keys:** `Esc` and `?` close it; `q` opens the quit dialog; `j` changes nothing.
