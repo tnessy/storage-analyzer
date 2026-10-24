@@ -30,3 +30,6 @@ proptest = "1"
 tempfile = "3"
 insta = "1"
 assert_cmd = "2"
+# T031 measurement only (examples/scan_harness.rs); not used by the shipped binary.
+libc = "0.2"
+mimalloc = { version = "0.1", default-features = false }
