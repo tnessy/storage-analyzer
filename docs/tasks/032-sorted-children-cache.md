@@ -1,7 +1,7 @@
 # T032: Partial sort plus cached order for huge expanded folders
 
 - **Engineer:** engineer-2. **Depends on:** T016, T009. **Schedule:** after T029.
-- **Status:** v1, low priority (architect's T009 assessment, item 4).
+- **Status:** **BACKLOG. Not approved for v1 by the user (2026-10-23).** Do not start.
 
 ## Problem
 The tree row build sorts an expanded folder's children on every key and frame: 5.3 ms at 100 k children, **83.8 ms at 1 M**, against the 50 ms input target.

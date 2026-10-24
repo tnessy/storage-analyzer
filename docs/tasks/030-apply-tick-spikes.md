@@ -1,7 +1,7 @@
 # T030: No apply step over ~5 ms: diagnose tick spikes, split large listings
 
 - **Engineer:** engineer-1. **Depends on:** T009 (merged). **Schedule:** engineer-1's **next** task.
-- **Status:** v1 (team lead, per the architect's T009 assessment; design §4 `Listing` contract, §5 "Max work per apply step").
+- **Status:** **approved by the user for v1** (2026-10-23). Per the architect's T009 assessment; design §4 `Listing` contract, §5 "Max work per apply step" and "Post-delete index refresh". **Order: Part 2 first** (split listings); Part 1 is a cheap diagnosis that can run alongside. Tests first.
 
 ## Background
 `$HOME` (20 M entries) shows a median apply tick of 0.01 ms, but **118–147 ms** maxima. The 8 ms budget is only checked *between* messages. Two causes fit:
@@ -44,3 +44,19 @@ Run it on `$HOME` and record in `spikes/R2-R4-R8-REPORT.md` which cause explains
 
 ## Files owned
 `src/scan/msg.rs` (the contract change), `src/scan/walker.rs`, `src/model/mod.rs`, `src/model/tree.rs`, `src/model/names.rs` (Part 3 only), `examples/scan_harness.rs`, `tests/scan_walker.rs`, `tests/model_apply.rs`, plus the mechanical `last: true` edits listed above.
+
+## Part 4: resumable `recompute_top` (folded in from the former T033; user-approved)
+**Problem:** `recompute_top` takes 0.4–0.6 s at 20 M entries and runs after every `Removed`, which freezes the UI for about half a second.
+- **Model:**
+  - `apply_delete(Removed)` starts a **resumable** rebuild instead of the one-shot one;
+  - `Model::advance_top_rebuild(budget: Duration) -> bool` (`true` = done) does ≤ ~5 ms of work per call;
+  - `Model::top_rebuild_pending() -> bool`;
+  - while pending, `top_files()` returns the previous list **minus nodes that no longer exist**. Ask Heimdall if the architect specifies otherwise.
+  - Also make the T012 rescan path use it (`begin_rescan` currently calls the one-shot rebuild).
+- **Event loop:** call `advance_top_rebuild(5 ms)` once per loop iteration while pending, after input and scan apply.
+- **Largest view:** show the UX wording for the "updating" state while pending. **The wording is pending from UX**; use the copy constant `LARGEST_UPDATING = "updating…"` until UX answers, and Heimdall will amend this brief.
+- **File ownership for this part:** you also own `src/app/event_loop.rs` (the one call), `src/ui/largest_view.rs` and one constant in `src/ui/copy.rs`. engineer-2 is on T029 (`sanitize.rs` and tests) and won't touch these meanwhile.
+- **Tests (red first):**
+  - on a synthetic 1 M-file model, every `advance_top_rebuild(5 ms)` call returns within ~2× budget, and the final list equals the one-shot rebuild;
+  - while pending, `top_files()` holds no removed node;
+  - the Largest view shows the updating state while pending, and the final list after.

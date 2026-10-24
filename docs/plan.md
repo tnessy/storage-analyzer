@@ -66,8 +66,8 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
 | T030 | e1 | Tick-spike diagnosis + split listings over 8,192 entries (`last` flag); chunked arrays only if growth is confirmed | T009 |
 | T031 | e1 | RSS 4.3 vs 2.4 GiB: malloc_stats/trim, alternative allocator, then fix (allocator or per-listing name buffer) | T009 |
-| T032 | e2 | Partial sort plus cached order for huge expanded folders (≤ 2 Hz while scanning) | T016, T009 |
-| T033 | e1 → e2 | Resumable `recompute_top` (≤ 5 ms/tick) + Largest `updating…` (pending architect/UX details) | T030 |
+| T032 | e2 | **BACKLOG (not in v1, user)**: partial sort plus cached order for huge expanded folders | T016, T009 |
+| T033 | — | Superseded: folded into T030 Part 4 | — |
 | T026 | e2 | Tile colour assignment, option C: files by type, folders by identity (replaces T025's shades) | T025 |
 
 ### Wave 1: foundations (parallel across engineers)
@@ -100,8 +100,8 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T023 | e2 | Size toggle, help, too-small, NO_COLOR/ASCII/contrast, snapshot set | T017, T018 |
 
 ### Suggested order per engineer
-- **engineer-1:** done: T001, T003–T008, T010–T012, T024, T027, T028, T028b, T009. **Next: T030 → T031 → T033 (model part).** The thread default stays `min(nproc, 8)`. A cold-cache run at 4 vs 8 threads needs the **user** (`sync; echo 3 | sudo tee /proc/sys/vm/drop_caches` before each run); if 4 is within ~10 % of 8, the default becomes 4.
-- **engineer-2:** done: T002, T013–T023, T023b, T025, T026, T020b, T021. **Next: T029 → T032 → T033 (Largest view part, once its brief is completed).**
+- **engineer-1:** done: T001, T003–T008, T010–T012, T024, T027, T028, T028b, T009. **Next: T030 (split listings first; incl. resumable `recompute_top`), with the T031 diagnosis alongside.** The thread default stays `min(nproc, 8)`; the user does not request a cold-cache measurement.
+- **engineer-2:** done: T002, T013–T023, T023b, T025, T026, T020b, T021. **Next: T029.** (T032 is backlog.)
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.
 

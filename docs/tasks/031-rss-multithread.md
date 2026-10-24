@@ -1,6 +1,6 @@
 # T031: Diagnose (then fix) RSS 4.3 GiB with ≥ 2 threads vs 2.4 GiB with 1
 
-- **Engineer:** engineer-1. **Depends on:** T009. **Schedule:** after T030.
+- **Engineer:** engineer-1. **Depends on:** T009. **Status:** **approved by the user for v1.** **Schedule:** the diagnosis (read-only measurement) can run alongside T030. **Fix only if small and local**; otherwise report the options.
 - **Status:** v1 (team lead, per the architect's assessment; design §5 "Process memory").
 
 ## Diagnosis, in this order

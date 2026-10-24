@@ -1,3 +1,5 @@
+> **Superseded:** folded into **T030 Part 4** (user-approved, 2026-10-23). Do not work from this file.
+
 # T033: Resumable `recompute_top` after a delete (no ~0.5 s freeze)
 
 - **Engineers:** **engineer-1 (model part)**, then **engineer-2 (Largest view part)**.
