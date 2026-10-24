@@ -56,18 +56,12 @@ Add a runbook row (M2 area, "read speed") and one manual check to `docs/acceptan
 ## Files owned
 `src/diskio/mod.rs`, `src/diskio/meter.rs` (new), the one `src/lib.rs` line, `src/ui/format.rs`, `src/ui/status.rs`, `src/ui/copy.rs`, `src/app/event_loop.rs`, `src/app/state.rs`, `src/app/mod.rs` (the starter passes `NoSource`), `tests/app_eta.rs` (or a new `tests/ui_status.rs`), the affected snapshots, and `docs/acceptance/runbook.md`.
 
-## Amendment (2026-10-24): label `disk` + set generation (architect rev 11, UX update). **Apply now.**
-1. **Label is `disk`, not `read`.** The status strings are `disk  64.2 MiB/s`, and a measured zero is `disk     0 B/s`. All check-23 strings (a)–(h) in `ux/spec.md` are updated. The width is unchanged, so the 11-cell value and the 70/75-cell 80-column lines stay the same.
-2. **Contract addition, authorized and backward-compatible:** add to `ReadBytesSource`
-   ```rust
-   /// Changes whenever the measured device set changes (a device added). The meter restarts its
-   /// window so a newly added device's lifetime total never shows up as a one-second spike.
-   fn generation(&self) -> u64 { 0 }
-   ```
-   `NoSource` keeps the default.
+## Amendment (2026-10-24, design §3.12 rev 12; authoritative): label `disk`, meter rule
+1. **Label is `disk`, not `read`.** The status strings are `disk  64.2 MiB/s`, and a measured zero is `disk     0 B/s`. All check-23 strings in `ux/spec.md` are updated. The width is unchanged.
+2. **No contract change:** `ReadBytesSource` stays exactly as in §1 (`read_bytes() -> Option<u64>` only). **Do not add `generation()`.**
 3. **Meter:**
    - rate = Δbytes ÷ elapsed over the last ~1 s window;
    - **no value that second** if the total went down, or the source returned `None`;
-   - **restart the window** (no value until a full second has passed) whenever `generation()` changes.
-   - **Note the difference from the earlier text:** `None` and a counter decrease now mean "no value for that second", not a permanent latch. The thread may become available again (for example, after a device is added). Keep the field hidden while there is no value.
-   - **Tests:** a counter reset gives no value that second, then values resume; `None` → hidden, then values resume after a full second; a generation change → no spike, the window restarts.
+   - values resume after the next full second. There is no permanent latch: a source with a read error returns `None` for good by itself.
+   - Keep the field hidden while there is no value.
+   - **Tests:** a counter decrease gives no value that second, then values resume; `None` → hidden.
