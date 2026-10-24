@@ -148,6 +148,7 @@ The design left these open. I made them so the briefs are complete. Each one has
 | O2 | Types side panel ≥120 columns: build it or drop it | user via project-owner |
 | O3 | Do any measured targets become gates? (50 ms p95, 120 B/entry, thread default) | user via project-owner |
 | O8 | Backlog: after `Aborted(MountPoint)`, refuse the next delete of that node straight away (architect F2 on T011). Do it in the app (remember the refusal) or in the walker's identity path, not as `OTHER_FS` on a counted node | architect / project-owner |
-| O9 | Backlog: incremental `remove_subtree` (~80 ms per large delete accepted for v1; revisit if a real delete exceeds 250 ms) | architect |
+| O9 | Backlog: incremental `remove_subtree` (~80–101 ms for a 602 k-entry folder accepted for v1; ≈ 0.17 µs/entry, so ~1.5 M entries would cross 250 ms; revisit if a real delete exceeds it) | architect |
+| O10 | **Memory budget corrected:** ~4.0 GiB RSS for ~20 M entries on real data (T031), not 2.85 GiB (R1). Re-confirm "acceptable for v1" with the owner/user; reductions are backlog (architect) | project-owner / user |
 | O6 | Brief M7 update for `≥` lower bounds (design §6 gap 4) | project-owner |
 | ~~O7~~ | **Closed (architect, design §3.11):** `r` on a still-scanning folder = `p` plus resume of the skipped folders inside it. No per-rescan generation (revisit only for v2 file watching). The rule lives in `Model::rescan_plan` (T012), and T020 executes it. The status text is pending from UX | — |
