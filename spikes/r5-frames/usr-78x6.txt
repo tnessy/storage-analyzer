@@ -1,0 +1,7 @@
+--- interval 250 ms, t = 0.2 s, 11 items ---
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa++bbbbbbbbbbbbbbb++ccccc++ddddddddd+
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbcccccccddddddddddd
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbccccccc+ddddddddd+
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbccccccc+ee++ff++g+
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbccccccceeeeffffggg
++aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa++bbbbbbbbbbbbbbb++ccccc++ee++ff++g+
