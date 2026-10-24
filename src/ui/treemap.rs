@@ -169,7 +169,7 @@ fn empty_state(state: &AppState) -> Option<Empty> {
         return Some(Empty::AllZero(map.child_count()));
     }
     let scope = map.scope()?;
-    if state.model.state() == ScanState::Starting || !state.model.is_complete(scope) {
+    if state.phase() == ScanState::Starting || !state.model.is_complete(scope) {
         Some(Empty::Waiting)
     } else {
         Some(Empty::Folder)
@@ -251,7 +251,7 @@ pub fn title_text(state: &AppState, width: usize) -> String {
         use std::os::unix::ffi::OsStrExt;
         sanitize::display_name(state.model.path(scope).as_os_str().as_bytes())
     };
-    let status = match state.model.state() {
+    let status = match state.phase() {
         ScanState::Starting | ScanState::Scanning => Some(copy::MAP_UPDATING),
         ScanState::Stopped => Some(copy::MAP_PARTIAL),
         ScanState::Done => None,

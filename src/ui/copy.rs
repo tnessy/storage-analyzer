@@ -161,3 +161,17 @@ pub const HELP_MAP_NOTE: &str = "Map: files are coloured by type; the tag shows 
 pub const HELP_ETA_FOOTER: &str = "ETA appears once a previous complete scan of this root is known. Run with --history to remember past scans (keeps one small file in ~/.local/state).";
 
 pub const HELP_HARD_LINK_NOTE: &str = "Hard links count once, in the folder scanned first: totals match du, folder sizes may not. Deleting one name of a hard-linked file frees no space.";
+
+/// ` · not scanned (other fs): <path>` plus ` +N` for more; `{path}` and `{more}` are filled in.
+pub const OTHER_FS_HINT: &str = " · not scanned (other fs): {path}{more}";
+/// The short form: ` · 3 other fs not scanned`.
+pub const OTHER_FS_HINT_SHORT: &str = " · {count} other fs not scanned";
+
+pub const NOT_A_FOLDER: &str = "p, x and r work on folders.";
+pub const PRIORITY_CLEARED: &str = "Priority cleared.";
+pub const ALREADY_SCANNED: &str = "Already fully scanned.";
+pub const ALREADY_SKIPPED: &str = "Already skipped. r resumes.";
+pub const STILL_STOPPING: &str = "Still stopping the scan. Try again when it says Stopped.";
+pub const SCAN_IN_PROGRESS: &str = "Scan in progress. Press s to stop, then r to rescan.";
+pub const STOPPING: &str = "Stopping…";
+pub const FIRST_PREFIX: &str = "First:";

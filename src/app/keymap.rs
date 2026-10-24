@@ -29,6 +29,8 @@ pub enum Action {
     Prioritise,
     Skip,
     Resume,
+    /// `s`: stop the whole scan.
+    Stop,
     /// `1`..`4`: Tree, Types, Largest, Skipped.
     View(u8),
     Other,
@@ -57,6 +59,7 @@ pub fn action(key: KeyEvent) -> Action {
         KeyCode::Char('p') => Action::Prioritise,
         KeyCode::Char('x') => Action::Skip,
         KeyCode::Char('r') => Action::Resume,
+        KeyCode::Char('s') => Action::Stop,
         KeyCode::Char('a') => Action::ToggleSize,
         KeyCode::Char('?') => Action::Help,
         KeyCode::Tab | KeyCode::BackTab => Action::SwitchPane,

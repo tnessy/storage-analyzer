@@ -32,8 +32,7 @@ fn ext_name(key: &ExtKey) -> String {
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let rows = state.lists.types_rows();
     if rows.is_empty() {
-        let done = state.model.state() != ScanState::Scanning
-            && state.model.state() != ScanState::Starting;
+        let done = state.phase() != ScanState::Scanning && state.phase() != ScanState::Starting;
         let message = if done {
             copy::NO_FILES_FOUND
         } else {

@@ -1,6 +1,7 @@
 //! Main loop and `AppState` (T015).
 
 pub mod cli;
+pub mod controls;
 pub mod event_loop;
 pub mod keymap;
 pub mod list_state;

@@ -12,13 +12,31 @@ use crate::app::state::AppState;
 use crate::eta::{EtaSource, EtaView};
 use crate::types::{ScanState, SizeMode};
 
+/// `▲ First: .cache/` before the scanning text while a folder has the priority.
+fn with_priority(state: &AppState, width: usize) -> String {
+    let Some(id) = state.priority.filter(|&p| state.model.exists(p)) else {
+        return scanning_text(state, width);
+    };
+    let name = sanitize::display_name(state.model.name(id));
+    let prefix = format!(
+        "{} {} {name}/  ",
+        state.glyphs.prioritised,
+        copy::FIRST_PREFIX
+    );
+    // The bar goes first when space runs out: the scanning text is built for what is left.
+    format!(
+        "{prefix}{}",
+        scanning_text(state, width.saturating_sub(format::width(&prefix)))
+    )
+}
+
 /// With no source the line says nothing about ETA for the first two seconds (ADR-010).
 const ETA_TEXT_AFTER: Duration = Duration::from_secs(2);
 
 /// While scanning: the text for whatever the estimator says (`width` decides what is dropped).
 fn scanning_text(state: &AppState, width: usize) -> String {
     let glyph = state.spinner_glyph();
-    let scan = state.model.state();
+    let scan = state.phase();
     let word = if scan == ScanState::Starting {
         copy::STARTING
     } else {
@@ -96,15 +114,67 @@ fn lead(glyph: &str) -> String {
     }
 }
 
+/// The status line: a transient message, or the state text with the other-filesystem hint.
 pub fn text(state: &AppState, width: usize) -> String {
     if let Some(t) = &state.transient {
         return t.text.clone();
     }
+    match other_fs_hint(state) {
+        Some((full, short)) => fit_hint(&|room| state_text(state, room), &full, &short, width),
+        None => state_text(state, width),
+    }
+}
+
+/// ` · not scanned (other fs): /home +2`, and the short ` · 3 other fs not scanned`.
+fn other_fs_hint(state: &AppState) -> Option<(String, String)> {
+    use std::os::unix::ffi::OsStrExt;
+    if !state.config.one_filesystem {
+        return None;
+    }
+    let mut skipped: Vec<(u32, Vec<u8>)> = state
+        .model
+        .issues()
+        .iter()
+        .filter(|i| {
+            i.kind == crate::types::IssueKind::OtherFilesystem && state.model.exists(i.node)
+        })
+        .map(|i| {
+            let path = state.model.path(i.node);
+            (
+                state.model.depth(i.node),
+                path.as_os_str().as_bytes().to_vec(),
+            )
+        })
+        .collect();
+    skipped.sort();
+    let (_, shallowest) = skipped.first()?;
+    let path = sanitize::display_name(shallowest);
+    let more = if skipped.len() > 1 {
+        format!(" +{}", skipped.len() - 1)
+    } else {
+        String::new()
+    };
+    let full = copy::OTHER_FS_HINT
+        .replace("{path}", &path)
+        .replace("{more}", &more);
+    let short = copy::OTHER_FS_HINT_SHORT.replace("{count}", &skipped.len().to_string());
+    Some((full, short))
+}
+
+fn state_text(state: &AppState, width: usize) -> String {
     let g = &state.glyphs;
     let sep = g.separator;
     let elapsed = format::elapsed(state.elapsed);
-    match state.model.state() {
-        ScanState::Starting | ScanState::Scanning => scanning_text(state, width),
+    match state.phase() {
+        ScanState::Starting | ScanState::Scanning if state.is_stopping() => {
+            format!(
+                "{}{}  {elapsed} {}",
+                lead(g.stopped),
+                copy::STOPPING,
+                copy::ELAPSED
+            )
+        }
+        ScanState::Starting | ScanState::Scanning => with_priority(state, width),
         ScanState::Done => {
             let t = state.model.totals();
             let bytes = match state.size_mode {
@@ -341,5 +411,23 @@ pub fn estimating_line(glyph: &str, word: &str, elapsed: Duration) -> String {
         format::elapsed(elapsed),
         copy::ELAPSED,
         copy::ETA_ESTIMATING
+    )
+}
+
+/// Appends the other-filesystem hint to a status line (UX §5.2): the full hint when it fits, with
+/// the bar dropped first (the line is built for the room that is left); otherwise the short hint.
+pub fn fit_hint(
+    line_for: &dyn Fn(usize) -> String,
+    full: &str,
+    short: &str,
+    width: usize,
+) -> String {
+    let line = line_for(width.saturating_sub(format::width(full)));
+    if format::width(&line) + format::width(full) <= width {
+        return format!("{line}{full}");
+    }
+    format!(
+        "{}{short}",
+        line_for(width.saturating_sub(format::width(short)))
     )
 }

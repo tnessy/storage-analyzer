@@ -1,5 +1,6 @@
 //! `AppState`: everything the UI shows besides the model's own data. Main thread only.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{KeyEvent, KeyEventKind};
@@ -15,6 +16,7 @@ use crate::eta::{EtaInput, EtaView, Rate};
 use crate::history::HistoryEntry;
 use crate::layout::Direction;
 use crate::model::Model;
+use crate::scan::{ScanControl, ScanHandle};
 use crate::types::NodeId;
 use crate::types::{IssueKind, ScanState, SizeMode};
 use crate::ui::theme::{Glyphs, Theme};
@@ -23,7 +25,7 @@ use crate::ui::tile_colors::TileColors;
 /// How long a transient status message stays (UX §5.2).
 pub const TRANSIENT_TTL: Duration = Duration::from_secs(5);
 /// Time constant of the entries-per-second average (design §3.6).
-const RATE_TAU: Duration = Duration::from_secs(5);
+pub(super) const RATE_TAU: Duration = Duration::from_secs(5);
 /// One spinner frame lasts this long, so it never moves faster than 10 fps (UX §7).
 const SPINNER_FRAME_MS: u128 = 100;
 
@@ -87,6 +89,21 @@ pub struct AppState {
     pub session_previous: Option<SessionRecord>,
     /// A finished scan the loop should write to the history file (only with `--history`).
     pub pending_history_write: Option<HistoryEntry>,
+    /// Shared with the scan workers: focus, skipped prefixes, cancel-all.
+    pub control: Arc<ScanControl>,
+    /// The running walker; `None` in tests that feed messages by hand.
+    pub scan_handle: Option<ScanHandle>,
+    /// A rescan has started and its `Done` has not arrived yet (the model's own state stays
+    /// `Done`/`Stopped` until it does).
+    pub rescan_in_flight: bool,
+    /// Whether the scan in progress (or last finished) is the root's own, or a subtree rescan.
+    pub scan_kind: ScanKind,
+    /// Elapsed time when `s` was pressed; the status shows it frozen while stopping.
+    pub stop_elapsed: Option<Duration>,
+    /// Rescans the app asked for while stopping; they start right after `Done { cancelled }`.
+    pub queued_rescans: Vec<NodeId>,
+    /// `entries_seen` when the current scan began (the model's counter never goes down).
+    pub seen_baseline: u64,
     pub dialog: Option<Dialog>,
     pub transient: Option<Transient>,
     pub quit: bool,
@@ -125,6 +142,13 @@ impl AppState {
             eta_sources: EtaSources::default(),
             session_previous: None,
             pending_history_write: None,
+            control: Arc::new(ScanControl::new()),
+            scan_handle: None,
+            rescan_in_flight: false,
+            scan_kind: ScanKind::Root,
+            stop_elapsed: None,
+            queued_rescans: Vec::new(),
+            seen_baseline: 0,
             dialog: None,
             transient: None,
             quit: false,
@@ -135,10 +159,7 @@ impl AppState {
     }
 
     pub fn is_scanning(&self) -> bool {
-        matches!(
-            self.model.state(),
-            ScanState::Starting | ScanState::Scanning
-        )
+        matches!(self.phase(), ScanState::Starting | ScanState::Scanning)
     }
 
     /// The estimator's view of the scan right now.
@@ -147,14 +168,22 @@ impl AppState {
         let (top_done, top_total) = self.model.top_level_progress();
         crate::eta::view(&EtaInput {
             elapsed: self.elapsed,
-            seen: totals.entries_seen,
+            seen: self.scan_entries(),
             pending_dirs: totals.pending_dirs,
             rate_eps: self.rate.eps(),
             source: self.eta_sources.best(),
-            state: self.model.state(),
+            state: self.phase(),
             top_done,
             top_total,
         })
+    }
+
+    /// Entries seen by the scan in progress (the model's counter keeps counting across rescans).
+    pub fn scan_entries(&self) -> u64 {
+        self.model
+            .totals()
+            .entries_seen
+            .saturating_sub(self.seen_baseline)
     }
 
     /// The canonical root and the options that make two scans comparable.
@@ -186,13 +215,13 @@ impl AppState {
         self.session_previous = Some(SessionRecord {
             root: root.clone(),
             one_filesystem,
-            entries: totals.entries_seen,
+            entries: self.scan_entries(),
         });
         if self.config.history {
             self.pending_history_write = Some(HistoryEntry {
                 root,
                 one_filesystem,
-                entries: totals.entries_seen,
+                entries: self.scan_entries(),
                 dirs: totals.dirs,
                 bytes: totals.disk_bytes,
                 duration_ms: u64::try_from(self.elapsed.as_millis()).unwrap_or(u64::MAX),
@@ -238,20 +267,19 @@ impl AppState {
     pub fn tick(&mut self, now: Duration) -> bool {
         self.now = now;
         if self.is_scanning() {
-            self.rate.sample(
-                now.saturating_sub(self.started_at),
-                self.model.totals().entries_seen,
-            );
+            self.rate
+                .sample(now.saturating_sub(self.started_at), self.scan_entries());
         }
         if self.finished_at.is_none() && !self.is_scanning() {
             self.finished_at = Some(now);
-            self.elapsed = now.saturating_sub(self.started_at);
-            self.scan_finished(ScanKind::Root);
+            self.scan_finished(self.scan_kind);
         }
-        let elapsed = self
-            .finished_at
-            .unwrap_or(now)
-            .saturating_sub(self.started_at);
+        // `s` freezes the clock: the Stopping and Stopped lines show the time it was pressed.
+        let elapsed = self.stop_elapsed.unwrap_or_else(|| {
+            self.finished_at
+                .unwrap_or(now)
+                .saturating_sub(self.started_at)
+        });
         let mut changed = elapsed.as_secs() != self.elapsed.as_secs();
         self.elapsed = elapsed;
         if self.transient.as_ref().is_some_and(|t| t.until <= now) {
@@ -281,6 +309,7 @@ impl AppState {
             (None, _) if too_small => {}
             (None, Action::Help) => self.dialog = Some(Dialog::Help),
             (None, Action::ToggleSize) => self.toggle_size_mode(),
+            (None, Action::Stop) => self.stop_scan(),
             (None, Action::View(n)) => {
                 self.view = [View::Tree, View::Types, View::Largest, View::Skipped]
                     [usize::from(n.clamp(1, 4)) - 1];
@@ -303,6 +332,11 @@ impl AppState {
             {
                 let now = self.now;
                 self.set_transient(crate::ui::copy::PARENT_ROW_HINT, now);
+            }
+            (None, Action::Prioritise) if self.view == View::Tree => self.press_priority(),
+            (None, Action::Skip) if self.view == View::Tree => self.press_skip(),
+            (None, Action::Resume) if matches!(self.view, View::Tree | View::Skipped) => {
+                self.press_resume();
             }
             (None, action) if self.focus == Pane::Map => self.map_key(action),
             (None, action) if self.view != View::Tree => self.list_key(action),
@@ -343,7 +377,7 @@ impl AppState {
     fn list_key(&mut self, action: Action) {
         let height = self.list_height;
         if action == Action::Enter {
-            if let Some(id) = self.lists.selected_node(self.view, &self.model) {
+            if let Some(id) = self.lists.selected_node(self.view) {
                 self.view = View::Tree;
                 self.tree.reveal(&self.model, id, &mut self.events);
             }

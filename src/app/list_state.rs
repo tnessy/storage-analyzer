@@ -20,8 +20,9 @@ pub enum RowKey {
     Category(Category),
     Ext(Category, ExtKey),
     Node(NodeId),
-    /// Index into `Model::issues()` (stable: issues are only appended).
-    Issue(usize),
+    /// The node an issue belongs to. A node has at most one issue, and positions in
+    /// `Model::issues()` shift when a rescan removes one, so rows are keyed by node.
+    Issue(NodeId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,6 +135,17 @@ pub struct ListState {
     skipped_cursor: Cursor,
 }
 
+/// The row (newest first) of the issue on `key`'s node, if it still has one.
+fn issue_row(issues: &[crate::types::ScanIssue], key: &RowKey) -> Option<usize> {
+    let RowKey::Issue(node) = key else {
+        return None;
+    };
+    issues
+        .iter()
+        .rposition(|i| i.node == *node)
+        .map(|at| issues.len() - 1 - at)
+}
+
 fn sized(mode: SizeMode, t: &crate::model::ExtTotals) -> u64 {
     match mode {
         SizeMode::Disk => t.disk_bytes,
@@ -231,15 +243,13 @@ impl ListState {
                 );
             }
             View::Skipped => {
-                let len = model.issues().len();
+                let issues = model.issues();
+                let len = issues.len();
                 self.skipped_len = len;
                 self.skipped_cursor.prepare(
                     len,
-                    &|k| match k {
-                        RowKey::Issue(i) if *i < len => Some(len - 1 - i),
-                        _ => None,
-                    },
-                    &|i| RowKey::Issue(len - 1 - i),
+                    &|k| issue_row(issues, k),
+                    &|i| RowKey::Issue(issues[len - 1 - i].node),
                     height,
                 );
             }
@@ -272,16 +282,12 @@ impl ListState {
                 );
             }
             View::Skipped => {
-                let len = self.skipped_len;
-                self.skipped_cursor.apply(
-                    action,
-                    len,
-                    &|k| match k {
-                        RowKey::Issue(i) if *i < len => Some(len - 1 - i),
-                        _ => None,
-                    },
-                    &|i| RowKey::Issue(len - 1 - i),
-                );
+                let issues = model.issues();
+                let len = issues.len();
+                self.skipped_cursor
+                    .apply(action, len, &|k| issue_row(issues, k), &|i| {
+                        RowKey::Issue(issues[len - 1 - i].node)
+                    });
             }
         }
     }
@@ -318,10 +324,10 @@ impl ListState {
     }
 
     /// The node behind the selected Largest or Skipped row.
-    pub fn selected_node(&self, view: View, model: &Model) -> Option<NodeId> {
+    pub fn selected_node(&self, view: View) -> Option<NodeId> {
         match (view, self.cursor(view)?.selected()?) {
             (View::Largest, RowKey::Node(id)) => Some(*id),
-            (View::Skipped, RowKey::Issue(i)) => model.issues().get(*i).map(|issue| issue.node),
+            (View::Skipped, RowKey::Issue(node)) => Some(*node),
             _ => None,
         }
     }

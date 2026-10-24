@@ -11,10 +11,7 @@ use crate::types::ScanState;
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
     let files = state.lists.largest();
     if files.is_empty() {
-        let scanning = matches!(
-            state.model.state(),
-            ScanState::Starting | ScanState::Scanning
-        );
+        let scanning = matches!(state.phase(), ScanState::Starting | ScanState::Scanning);
         let message = if scanning {
             copy::NO_FILES_YET
         } else {

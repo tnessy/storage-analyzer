@@ -41,7 +41,7 @@ pub fn render_column_header(frame: &mut Frame, area: Rect, state: &AppState) {
         View::Skipped => copy::SKIPPED_COLUMNS,
     };
     let mut line = text.to_owned();
-    if state.model.state() == ScanState::Stopped {
+    if state.phase() == ScanState::Stopped {
         let room = usize::from(area.width).saturating_sub(format::width(&line));
         let tag = copy::PARTIAL;
         line.push_str(&format!("{tag:>room$}"));

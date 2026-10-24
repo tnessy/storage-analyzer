@@ -149,8 +149,6 @@ pub struct App<B: Backend, E: EventSource, C: Clock> {
     starter: Option<ScanStarter>,
     rx: Receiver<ScanMsg>,
     tx: Option<SyncSender<ScanMsg>>,
-    control: Arc<ScanControl>,
-    scan: Option<ScanHandle>,
     terminate: Arc<AtomicBool>,
     panics: PanicSlot,
     last_draw: Option<Duration>,
@@ -188,8 +186,6 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             starter: Some(starter),
             rx,
             tx: Some(tx),
-            control: Arc::new(ScanControl::new()),
-            scan: None,
             terminate,
             panics,
             last_draw: None,
@@ -235,11 +231,11 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         self.draw(now, true)?;
         if let (Some(starter), Some(tx)) = (self.starter.take(), self.tx.take()) {
             let root = self.state.model.root();
-            self.scan = starter(ScanLaunch {
+            self.state.scan_handle = starter(ScanLaunch {
                 root: self.state.model.path(root),
                 root_dev: self.state.model.identity(root).0,
                 options: self.state.config.scan_options(),
-                control: self.control.clone(),
+                control: self.state.control.clone(),
                 tx,
                 first_id: NodeId::ROOT.0 + 1,
             });
@@ -322,13 +318,11 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
 
     /// Cancels the scan and joins its workers.
     pub fn finish(self) {
-        let Self {
-            rx, scan, control, ..
-        } = self;
-        control.cancel_all();
+        let Self { rx, state, .. } = self;
+        state.control.cancel_all();
         // Workers blocked on a full channel must see it close before they are joined.
         drop(rx);
-        if let Some(handle) = scan {
+        if let Some(handle) = state.scan_handle {
             handle.shutdown();
         }
     }
@@ -362,6 +356,8 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         if self.state.tick(now) {
             self.needs_draw = true;
         }
+        self.state.process_events();
+        self.state.poll_controls();
         self.poll_history();
         self.write_history();
         if self.state.is_scanning() && !self.state.config.no_animation {
@@ -407,13 +403,13 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
             })
             .map(|p| p.message)
             .collect();
-        if self.scan.is_some() && self.state.is_scanning() && self.rx_disconnected {
+        if self.state.scan_handle.is_some() && self.state.is_scanning() && self.rx_disconnected {
             failures.push(WORKERS_GONE.to_owned());
         }
         if failures.is_empty() {
             return;
         }
-        self.state.model.apply(ScanMsg::Done { cancelled: true });
+        self.state.apply_scan_msg(ScanMsg::Done { cancelled: true });
         self.state.dialog = Some(Dialog::ScanError(failures.join("\n")));
         self.needs_draw = true;
     }
@@ -425,7 +421,7 @@ impl<B: Backend, E: EventSource, C: Clock> App<B, E, C> {
         loop {
             match self.rx.try_recv() {
                 Ok(msg) => {
-                    self.state.model.apply(msg);
+                    self.state.apply_scan_msg(msg);
                     applied += 1;
                     if start.elapsed() >= APPLY_BUDGET {
                         self.backlog = true;

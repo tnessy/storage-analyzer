@@ -44,7 +44,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState) {
             list_common::line(
                 state,
                 &format!("{path}{tail}"),
-                selected == Some(&RowKey::Issue(at)),
+                selected == Some(&RowKey::Issue(issue.node)),
                 width,
             )
         })
