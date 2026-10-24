@@ -144,6 +144,12 @@ Rust (stable, 1.99 installed), **ratatui 0.30.x** with the crossterm backend (cr
 - **Node ID allocation:** a shared `AtomicU32` hands out a contiguous block per listing (`first_id .. first_id + entries.len()`). The model grows its vectors to fit.
 - **Completion:** a shared pending-jobs counter. When it reaches 0, the scan sends `ScanMsg::Done`.
 - **Cancel (Should):** a shared `AtomicBool`. Workers stop taking jobs. Unread dirs are marked `INCOMPLETE`. The scan sends `Done { cancelled: true }`.
+  - **Atomicity rule (T021 review):** two pairs of operations must each happen under the job-queue lock:
+    - a worker's "cancel is set → drop all queued jobs";
+    - a rescan's "clear cancel → push the rescan job".
+
+    Otherwise a rescan pushed just after `Done { cancelled }` can be drained as if it belonged to the stopped scan. That loses the rescan and sends a spurious `Done`.
+  - **Alternative:** a cancel generation stamped on each job, where the drain drops only jobs from before the latest reset.
 
 ### 3.4 Data model (ADR-004)
 - **Arena:** `Vec`-backed, indexed by `NodeId(u32)`. Root = `NodeId(0)`. Up to 4.29 billion entries.

@@ -302,14 +302,22 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ║  /home/nss/.cache/yay                                        ║
 ║  Folder · 31.0 GiB (disk usage) · 48,212 files · 1,903       ║
 ║  folders                                                     ║
-║  Space freed may be less: 12 files have other hard links.    ║
+║  Space freed may be less: 12 files also have hard links      ║
+║  outside this folder, so at most 30.2 GiB is freed.          ║
 ║                                                              ║
 ║  This cannot be undone. Files are not moved to the trash.    ║
 ║                                                              ║
 ║        y  Delete             [ n / Esc / Enter  Cancel ]     ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
-- The hard-link line is shown only when `outside_links > 0`.
+- **The hard-link line** is shown only when `outside_links > 0`. Exact text (T021 review):
+  - N > 1: `Space freed may be less: N files also have hard links outside this folder, so at most X is freed.`
+  - N = 1: `Space freed may be less: 1 file also has hard links outside this folder, so at most X is freed.`
+  - N uses the exact-count format and X the long-size format (§7.1), from `freed_bytes_upper`.
+- **Fixed dialog strings** (exact; T021 review):
+  - Unfinished warning: `Everything inside will be deleted, including files not counted yet.` It has no glyph prefix.
+  - Unfinished hard-link line: `Hard links: not fully known (scan not finished).` It is its own paragraph.
+- **Wrapping:** every dialog paragraph starts at the 2-cell inner margin, and continuation lines start at that same margin, with no hanging indent. List items ("Largest known inside", failure groups) are indented 2 more cells and **never wrap**: they truncate with `…`.
 - For a file target, the second line reads `File · 4.2 GiB (disk usage)`, and there are no counts.
 
 **Delete: unfinished target (M7 v0.5, design §3.11 O3)**
@@ -324,9 +332,9 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ║     9.6 GiB  cache/                                          ║
 ║     2.1 GiB  linux-cachyos-7.2.9.pkg.tar.zst                 ║
 ║                                                              ║
-║  ◌ Everything inside will be deleted, including files not    ║
-║    counted yet. Hard links: not fully known (scan not        ║
-║    finished).                                                ║
+║  Everything inside will be deleted, including files not      ║
+║  counted yet.                                                ║
+║  Hard links: not fully known (scan not finished).            ║
 ║  This cannot be undone. Files are not moved to the trash.    ║
 ║                                                              ║
 ║  y Delete now   p Finish scan first   [ n/Esc/Enter  Cancel ]║
@@ -548,7 +556,7 @@ All dialogs are centered and 64 columns wide (or the terminal width minus 4, whi
 ╚═════════════════════════════════════════════════════════════ Esc or ? close ═╝
 ```
 - That is 20 rows, which leaves 4 spare at 24.
-- **Hard-link footer (design §3.4, T023):** this is the only place that explains *attribution*, that is, which folder a hard-linked file is charged to. The delete dialog's hard-link line (§5.3) still gives the exact per-delete warning (`Space freed may be less: N files have other hard links.`).
+- **Hard-link footer (design §3.4, T023):** this is the only place that explains *attribution*, that is, which folder a hard-linked file is charged to. The delete dialog's hard-link line (§5.3) still gives the exact per-delete warning (`Space freed may be less: N files also have hard links outside this folder, so at most X is freed.`).
 - **ASCII key column:**
   - `↑↓ j k` becomes `Up Dn j k`.
   - `→ l` becomes `Right l`, and `← h` becomes `Left h`.
@@ -621,7 +629,7 @@ The Okabe-Ito set has only 7 hues, and file types use all 7. So no *global* spli
 
 - **Color depth:** truecolor if `COLORTERM` is `truecolor` or `24bit`; otherwise the xterm-256 column of the §7 palette; otherwise monochrome.
 - **ASCII fallback** (no Unicode or `LANG=C`):
-  - **Glyphs:** `◌`→`~`, `▲`→`^`, `⊘`→`-`, `≥`→`>=`, `▾▸`→`-+`, `█…`→`#`, `…`→`...`, `·`→`-`, `›`→`>`.
+  - **Glyphs:** `◌`→`~`, `▲`→`^`, `⊘`→`-`, `≥`→`>=` (always two characters, in every string; never a lone `>`, which reads as "greater than" and clashes with the `>` selection marker), `▾▸`→`-+`, `█…`→`#`, `…`→`...`, `·`→`-`, `›`→`>`.
   - **Done and Stopped lines:** `✓` and `■` are dropped and the word stays (`Done in 03:51`, `Stopped at 01:12`).
   - **Borders:** double→`#`, single→`+-|`.
   - **Key names in all copy** (hints, messages, dialogs, map title): `⏎`→`Enter` and `⌫`→`Bksp`. Arrows are not folded character by character; contexts that name arrows use the letter-key wording in §6. For example, `Press ⏎ to go up.` becomes `Press Enter to go up.`, and ` · ⏎ goes up to /home/nss` becomes ` · Enter goes up to /home/nss`.
@@ -635,7 +643,7 @@ The Okabe-Ito set has only 7 hues, and file types use all 7. So no *global* spli
 - Below 1024 bytes: an integer followed by `B`, with no decimal. Examples: `0B`, `812B`, `1023B`.
 - Otherwise: divide by 1024^k for the largest k where the value is ≥ 1, then print **always 1 decimal** followed by the unit letter, with no space. Examples: `1.0K`, `812.0K`, `64.2G`.
 - If rounding to 1 decimal gives `1000.0` or more, move up one unit and recompute. So 1,023.96 KiB prints as `1.0M`, never `1024.0K`.
-- The longest output is 6 cells (`999.9G`). With `≥` it is 7, which is the SIZE column width.
+- The longest output is 6 cells (`999.9G`). With `≥` it is 7, which is the SIZE column width. **In ASCII mode, `≥` is `>=` (2 cells), so the SIZE column is 8 cells wide** and NAME gets 1 cell less.
 - Rounding is to nearest, as Rust's `{:.1}` does. Tests should avoid exact ties.
 
 **Long size**, used in dialogs, status messages, the Done line and the Indeterminate line:
