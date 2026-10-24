@@ -21,3 +21,8 @@
 - `d` on the same row still shows the existing other-filesystem refusal.
 
 **Commands:** the five standard ones.
+
+## Also in T020b (after T028b merges): use `ScanHandle::rescan_many`
+- Where the app issues the rescans queued during Stopping (`queued_rescans`, including D1 delete-outcome rescans), call `rescan_many` **once** with all of them, instead of calling `rescan()` in a loop.
+- **App-level test (deterministic):** two queued rescans, the first folder tiny. `rescan_in_flight` stays true until **both** folders are complete. Use a gated `FakeFs`.
+- If T028b hasn't merged when you reach this, do the message part first and this part after.

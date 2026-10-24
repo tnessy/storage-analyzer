@@ -80,3 +80,48 @@ Requested from the architect (via the team lead) for `src/app/delete_flow.rs` an
 - I commit T021 once round 2 is done. T028 lands separately, and I'll re-run the app_controls loop after both.
 
 10. **Reinstated (T028 measurements):** the flaky `app_controls::r_after_a_stop_is_a_full_rescan_at_once` is **also** a test-timing race, independent of the walker race T028 fixed. Instrumented runs before and after T028 never lost the rescan; it just completes inside the `r` keypress. **Fix the test:** hold the gate (grant nothing) between `s`/Stopped and the `rescan_in_flight` + message assertions, then grant and wait. **Prove it:** 200 consecutive runs of the whole `app_controls` test binary (all tests in parallel), 0 failures.
+
+## Round 2 re-review (2026-10-23): CHANGES REQUESTED, round 3 (small)
+**Fresh evidence** (clean worktree: HEAD with T028 plus the T021 files):
+- fmt ok, whole-tree clippy clean;
+- **all suites pass in one full run**, and `--ignored` passes;
+- doc tests ok, release build ok.
+
+Items 1–9 are verified in code and tests:
+- UX copy;
+- ASCII `>=` through `Glyphs::lower_bound`, with the ASCII tree SIZE column at 8 cells;
+- `DeleteHandle::detach()`;
+- the real exit outcome;
+- the refusal text on a refused target;
+- one breakage for each stub-passing test (the parent-row test was strengthened);
+- the footer.
+
+**Real terminal** (by me, release build, scratch tree with `victim/` holding a hard link to `keep/`):
+
+| Keys | Result |
+|---|---|
+| `j d n` | declined; `victim/` still there |
+| `d y` | deleted `victim/`; `keep/link_to_a.txt` still reads `hi` |
+
+The dialog showed `Space freed may be less: 1 file also has hard links outside this folder, so at most 2.9M is freed.` (singular form ✓, but see R3-2). There was no panic.
+
+(An earlier run of mine pressed `j` twice and deleted `keep/` instead. That was the row I had selected, so it was correct behaviour from a wrong script.)
+
+**Ruling:** `delete::spawn_with` made `pub` + `#[doc(hidden)]` for test executors is **accepted** as the test seam. It is in engineer-1's module; I'll note it to them.
+
+**Round 3:**
+- **R3-1, item 10 is not done.** `tests/app_controls.rs` is unchanged. Measured on this tree: the whole `app_controls` binary fails **11 of 100** runs (`r_after_a_stop_is_a_full_rescan_at_once`). It is a test-timing race, independent of T028 (see `028-review.md`).
+  - **Fix:** hold the gate between Stopped and the `rescan_in_flight` / message assertions, then grant and wait.
+  - **Prove it:** 200 consecutive runs of the whole binary, 0 failures.
+- **R3-2, sizes in dialogs and messages must use the *long* format** (UX §7.1: "Long size, used in dialogs, status messages…": `2.9 MiB`, `31.0 GiB`). They currently use the compact `format::size_iec`, at:
+  - `delete_dialog.rs:36` (size line), `:66` (largest known inside), `:89` (at most X is freed);
+  - `result_dialog.rs:34` (freed);
+  - `delete_flow.rs:296` (the `Deleted … · freed X` message).
+
+  Use `size_iec_long`, with `≥ ` plus the long form for lower bounds (UX §7.1: "`≥ 31.0 GiB`, with a space after `≥`"). **Test:** the exact and unfinished dialogs, the Partial result and the Deleted message contain long-form sizes, and no compact `\d+\.\dM`/`G` token. Regenerate the dialog snapshots.
+- **R3-3, wrapped dialog lines** must return to the 2-cell inner margin (UX's stated rule: list items are indented 2 more cells, never wrap, and truncate with `…`). It is a shared change in `src/ui/dialog.rs`, which you own (from T015). **Test:** a long path in the delete dialog wraps with every continuation line at the 2-cell margin. Snapshot review.
+
+**After round 3:**
+- the architect re-reviews `delete_flow.rs` and the quit/signal paths;
+- I re-run the app_controls loop and the pty delete;
+- then I commit T021.

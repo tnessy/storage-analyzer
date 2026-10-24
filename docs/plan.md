@@ -62,6 +62,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T023b | e2 | Hard-link note in the help footer (UX §6, check 19(c)) | T023 |
 | T027 | e1 | Rescan fixes: top_done underflow; never rescan another filesystem (from the T020 review) | T012, T011, T020 |
 | T028 | e1 | Walker race: a rescan right after a stop can be lost (architect, from the T021 review) | T006, T020, T027 |
+| T028b | e1 | rescan_many + cancel flag captured under lock (architect low findings on T028) | T028 |
 | T026 | e2 | Tile colour assignment, option C: files by type, folders by identity (replaces T025's shades) | T025 |
 
 ### Wave 1: foundations (parallel across engineers)
@@ -94,7 +95,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T023 | e2 | Size toggle, help, too-small, NO_COLOR/ASCII/contrast, snapshot set | T017, T018 |
 
 ### Suggested order per engineer
-- **engineer-1** (re-ordered 2026-10-23 to unblock the delete feature): done: T001, T003, T024, T004, T006, T005, T010. **Next: T028 → T008 → T009.** (T012, T011, T027 and T007 are done.) T012 and T011 are the critical path to T021 (the delete UI). T007 (M8 du parity) follows immediately after. The R1/R2 spikes (T008, T009) come last; they measure targets, not gates.
+- **engineer-1** (re-ordered 2026-10-23 to unblock the delete feature): done: T001, T003, T024, T004, T006, T005, T010. **Next: T008 → T028b → T009.** (T028 is done.) (T012, T011, T027 and T007 are done.) T012 and T011 are the critical path to T021 (the delete UI). T007 (M8 du parity) follows immediately after. The R1/R2 spikes (T008, T009) come last; they measure targets, not gates.
 - **engineer-2:** T002 → T013 → T014 → T015 → T016 → **T017 → T018 → T025 → T026**, T023, **T023b** (before T022 if T022 hasn't started, otherwise right after it) → T022 → T019 → T020 → T023 → T021. The user approved moving T017/T018 ahead of T022/T019 on 2026-10-23. T022 and T019 are on hold until T017 and T018 are done. T017 therefore lands before R5: if R5 later recommends a different relayout policy, it is a follow-up to T017.
 
 Waiting points: T015 waits for T003. T022 waits for T006. T017/T018 wait for T005. T020 waits for T012. T021 waits for T011. If engineer-2 is blocked, the next unblocked task in their queue goes first. T023 can move ahead of T019 or T020.
