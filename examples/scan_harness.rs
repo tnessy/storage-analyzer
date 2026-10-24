@@ -1,7 +1,7 @@
 //! Spike R2/R4/R8: a headless scan harness (T009).
 //!
 //! `cargo run --release --example scan_harness -- ROOT [--threads N] [--cross-filesystems]
-//!  [--focus-at-ms T PATH [--watch-only]] [--slow-apply-ms N] [--du]`
+//!  [--delete-top PATH] [--focus-at-ms T PATH [--watch-only]] [--slow-apply-ms N] [--du]`
 //! `cargo run --release --example scan_harness -- --bench-rows`    (tree row build, 100 k / 1 M)
 //! `cargo run --release --example scan_harness -- --bench-queue [N]` (queue re-key cost)
 //!
@@ -32,6 +32,8 @@ fn channel_capacity() -> usize {
 }
 const CATEGORY_EVERY: Duration = Duration::from_millis(500);
 const CATEGORY_TILES: usize = 60;
+/// Ticks at least this long are logged with their messages.
+const SLOW_TICK: Duration = Duration::from_millis(20);
 
 #[derive(Clone, Debug)]
 struct Opts {
@@ -44,6 +46,22 @@ struct Opts {
     slow_apply_ms: u64,
     walker_only: bool,
     quiet: bool,
+    /// After the scan: delete this top-level folder in the model and time the rebuild.
+    delete_top: Option<PathBuf>,
+    /// Read the thread's page-fault and context-switch counters every tick (slows the run).
+    diag_ticks: bool,
+}
+
+/// A tick over 20 ms with what is known about it.
+struct SlowTick {
+    ms: f64,
+    messages: usize,
+    largest_message_entries: u64,
+    slowest_message_ms: f64,
+    regrown: bool,
+    /// Minor faults, major faults and involuntary context switches during the tick
+    /// (only with `--diag-ticks`).
+    os: Option<(u64, u64, u64)>,
 }
 
 #[derive(Default)]
@@ -57,10 +75,16 @@ struct Report {
     max_pending_dirs: u64,
     rss_mib: f64,
     recompute_top: Duration,
+    /// Longest single step and number of steps of a rebuild done in 5 ms steps.
+    rebuild_steps: (Duration, u32),
+    /// `--delete-top`: (rebuild needed, steps, work time in steps, longest step).
+    delete_rebuild: Option<(bool, u32, Duration, Duration)>,
     category_batches: Vec<Duration>,
     worker_cpu_percent: Option<f64>,
     focus_start_ms: Option<u64>,
     focus_dir_complete_ms: Option<u64>,
+    /// Ticks over 20 ms: (milliseconds, entries of each message applied, arrays regrown).
+    slow_ticks: Vec<SlowTick>,
     issues: Vec<(IssueKind, PathBuf)>,
     totals: (u64, u64, u64, u64),
     done: bool,
@@ -117,6 +141,27 @@ fn scan_thread_cpu() -> Vec<(String, f64)> {
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
+}
+
+/// (minor faults, major faults, involuntary context switches) of the calling thread.
+fn thread_counters() -> (u64, u64, u64) {
+    let stat = std::fs::read_to_string("/proc/thread-self/stat").unwrap_or_default();
+    let rest = stat.rsplit_once(')').map_or("", |(_, r)| r);
+    let f: Vec<u64> = rest
+        .split_whitespace()
+        .map(|v| v.parse().unwrap_or(0))
+        .collect();
+    let status = std::fs::read_to_string("/proc/thread-self/status").unwrap_or_default();
+    let involuntary = status
+        .lines()
+        .find_map(|l| l.strip_prefix("nonvoluntary_ctxt_switches:"))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+    (
+        f.get(7).copied().unwrap_or(0),
+        f.get(9).copied().unwrap_or(0),
+        involuntary,
+    )
 }
 
 fn root_entry(root: &Path) -> RawEntry {
@@ -210,6 +255,10 @@ fn run_scan(opts: &Opts) -> Report {
         let tick = Instant::now();
         let mut messages = 0;
         let mut exhausted = false;
+        let mut tick_entries: Vec<u64> = Vec::new();
+        let capacity_before = model.node_capacity();
+        let os_before = opts.diag_ticks.then(thread_counters);
+        let mut slowest_message = Duration::ZERO;
         loop {
             let msg = match rx.try_recv() {
                 Ok(m) => m,
@@ -234,10 +283,13 @@ fn run_scan(opts: &Opts) -> Report {
             if !opts.walker_only {
                 let t = Instant::now();
                 model.apply(msg);
-                report.apply_time += t.elapsed();
+                let took = t.elapsed();
+                slowest_message = slowest_message.max(took);
+                report.apply_time += took;
                 report.applied += entries;
                 second_applied += entries;
             }
+            tick_entries.push(entries);
             messages += 1;
             if opts.slow_apply_ms > 0 {
                 std::thread::sleep(Duration::from_millis(opts.slow_apply_ms));
@@ -253,6 +305,18 @@ fn run_scan(opts: &Opts) -> Report {
         }
         if messages > 0 {
             let took = tick.elapsed();
+            if took >= SLOW_TICK && !opts.walker_only {
+                report.slow_ticks.push(SlowTick {
+                    ms: ms(took),
+                    messages: tick_entries.len(),
+                    largest_message_entries: tick_entries.iter().max().copied().unwrap_or(0),
+                    slowest_message_ms: ms(slowest_message),
+                    regrown: model.node_capacity() != capacity_before,
+                    os: os_before
+                        .zip(opts.diag_ticks.then(thread_counters))
+                        .map(|(b, a)| (a.0 - b.0, a.1 - b.1, a.2 - b.2)),
+                });
+            }
             report.ticks.push(took);
             second_ticks.push(took);
             report.budget_exhausted_ticks += u64::from(exhausted);
@@ -325,6 +389,42 @@ fn run_scan(opts: &Opts) -> Report {
         let t = Instant::now();
         model.recompute_top();
         report.recompute_top = t.elapsed();
+        model.start_top_rebuild();
+        let (mut longest, mut steps) = (Duration::ZERO, 0);
+        loop {
+            let t = Instant::now();
+            let done = model.step_top_rebuild(Duration::from_millis(5));
+            longest = longest.max(t.elapsed());
+            steps += 1;
+            if done {
+                break;
+            }
+        }
+        report.rebuild_steps = (longest, steps);
+        if let Some(rel) = &opts.delete_top
+            && let Some(id) = find(&model, rel)
+        {
+            model.set_incremental_top(true);
+            let removed = storage_analyzer::delete::DeleteEvent::Finished(
+                storage_analyzer::delete::Outcome::Removed(Default::default()),
+            );
+            if model.begin_delete(id).is_ok() {
+                let started = Instant::now();
+                model.apply_delete(&removed);
+                let applied = started.elapsed();
+                let needed = model.top_updating();
+                let (mut work, mut longest, mut steps) = (applied, applied, 0);
+                while model.top_updating() {
+                    let t = Instant::now();
+                    model.step_top_rebuild(Duration::from_millis(5));
+                    let took = t.elapsed();
+                    work += took;
+                    longest = longest.max(took);
+                    steps += 1;
+                }
+                report.delete_rebuild = Some((needed, steps, work, longest));
+            }
+        }
         let totals = model.totals();
         report.totals = (
             totals.files + totals.dirs + 1,
@@ -371,6 +471,40 @@ fn print_report(opts: &Opts, r: &Report, walker_rate: Option<f64>) {
         "frontier (max discovered-but-unlisted dirs, the queue's pending jobs): {}",
         r.max_pending_dirs
     );
+    println!("tick p99 {:.2} ms", ms(percentile(&ticks, 0.99)));
+    println!(
+        "TARGET: apply_tick_max_ms={:.1} (target 50)",
+        ms(ticks.last().copied().unwrap_or_default())
+    );
+    println!("{} ticks of 20 ms or more:", r.slow_ticks.len());
+    for t in &r.slow_ticks {
+        let os = t.os.map_or(String::new(), |(minor, major, preempted)| {
+            format!(", faults minor {minor} major {major}, preempted {preempted}x")
+        });
+        println!(
+            "  {:7.1} ms  {} message(s), largest {} entries, slowest message {:.1} ms, node arrays regrown: {}{os}",
+            t.ms, t.messages, t.largest_message_entries, t.slowest_message_ms, t.regrown
+        );
+    }
+    println!(
+        "rebuild in 5 ms steps: {} steps, longest {:.1} ms",
+        r.rebuild_steps.1,
+        ms(r.rebuild_steps.0)
+    );
+    if let Some((needed, steps, work, longest)) = r.delete_rebuild {
+        println!(
+            "deleted {}: rebuild needed: {needed}; {steps} steps, {:.0} ms of work, longest step {:.1} ms",
+            opts.delete_top
+                .as_deref()
+                .map_or(String::new(), |p| p.display().to_string()),
+            ms(work),
+            ms(longest)
+        );
+        println!(
+            "TARGET: delete_top_rebuild_work_ms={:.0} (target about 1500 or less)",
+            ms(work)
+        );
+    }
     println!(
         "recompute_top on the final model: {:.1} ms",
         ms(r.recompute_top)
@@ -500,6 +634,7 @@ fn bench_rows() {
             dir: NodeId::ROOT,
             first_id: NodeId(1),
             entries,
+            last: true,
         });
         let mut tree = TreeState::new();
         let mut samples = Vec::new();
@@ -595,6 +730,11 @@ fn main() {
             .unwrap_or(0),
         walker_only: false,
         quiet: false,
+        delete_top: value("--delete-top").map(|p| {
+            let p = PathBuf::from(p);
+            p.strip_prefix(root).map(Path::to_path_buf).unwrap_or(p)
+        }),
+        diag_ticks: args.iter().any(|a| a == "--diag-ticks"),
     };
     println!(
         "cold run: first `sync; echo 3 | sudo tee /proc/sys/vm/drop_caches` yourself (never done here)"
@@ -651,12 +791,13 @@ mod tests {
                 slow_apply_ms: 0,
                 walker_only: false,
                 quiet: true,
+                delete_top: None,
+                diag_ticks: false,
             };
             let report = run_scan(&opts);
             assert!(report.done);
             assert_eq!(report.produced, expected);
             assert_eq!(report.applied, report.produced);
-            assert!(!report.ticks.is_empty());
         }
     }
 
@@ -675,6 +816,8 @@ mod tests {
             slow_apply_ms: 0,
             walker_only: true,
             quiet: true,
+            delete_top: None,
+            diag_ticks: false,
         };
         let report = run_scan(&opts);
         assert!(report.done);

@@ -50,6 +50,7 @@ fn listing(dir: u32, first_id: u32, entries: Vec<RawEntry>) -> ScanMsg {
         dir: NodeId(dir),
         first_id: NodeId(first_id),
         entries,
+        last: true,
     }
 }
 
@@ -447,8 +448,8 @@ proptest! {
             m.apply(ScanMsg::Listing {
                 dir: node_id[d],
                 first_id: NodeId(next_id),
-                entries: kids.iter().map(|&c| entry(c)).collect(),
-            });
+                entries: kids.iter().map(|&c| entry(c)).collect(), last: true,
+});
             next_id += kids.len() as u32;
             frontier.extend(kids.iter().copied().filter(|&c| specs[c - 1].is_dir));
         }
@@ -471,4 +472,94 @@ proptest! {
             prop_assert_eq!(m.parent(node_id[idx]), Some(node_id[p]));
         }
     }
+}
+
+#[test]
+fn node_capacity_reports_when_the_arrays_regrow() {
+    let mut m = model();
+    m.apply(listing(
+        0,
+        1,
+        (0..80).map(|d| dir(&format!("d{d}"))).collect(),
+    ));
+    let start = m.node_capacity();
+    assert!(start >= 81);
+    let mut changes = 0;
+    let mut last = start;
+    for d in 0..80u32 {
+        let entries: Vec<RawEntry> = (0..5000)
+            .map(|i| file(&format!("f{d}-{i}"), 1, 1))
+            .collect();
+        m.apply(listing(1 + d, 81 + d * 5000, entries));
+        let now = m.node_capacity();
+        assert!(now >= last, "capacity never shrinks");
+        assert!(now >= 81 + (d as usize + 1) * 5000);
+        changes += usize::from(now != last);
+        last = now;
+    }
+    // 400 k nodes: whole 64 k blocks, added one at a time.
+    assert_eq!(changes, 6, "capacity {start} -> {last}");
+    assert_eq!(last % (1 << 16), 0);
+}
+
+fn part(dir: u32, first_id: u32, entries: Vec<RawEntry>, last: bool) -> ScanMsg {
+    ScanMsg::Listing {
+        dir: id(dir),
+        first_id: id(first_id),
+        entries,
+        last,
+    }
+}
+
+#[test]
+fn only_the_last_part_completes_a_folder() {
+    let mut m = model();
+    m.apply(listing(0, 1, vec![dir("big")]));
+    m.apply(part(1, 2, vec![file("a", 4096, 10), dir("sub")], false));
+    assert!(!m.is_complete(id(1)), "more parts to come");
+    assert!(!m.flags(id(1)).contains(Flags::DONE));
+    assert_eq!(
+        m.size(id(1), D),
+        4096 + 4096 + 4096,
+        "its own block, a, and sub"
+    );
+    assert_eq!(m.counts(id(1)), (1, 1));
+    assert_eq!(m.children(id(1)), &[id(2), id(3)]);
+    assert_eq!(m.totals().pending_dirs, 2, "big itself and sub");
+
+    m.apply(part(1, 4, vec![file("b", 8192, 20)], false));
+    assert!(!m.is_complete(id(1)));
+    assert_eq!(m.size(id(1), D), 4096 + 4096 + 4096 + 8192);
+    assert_eq!(m.counts(id(1)), (2, 1));
+
+    m.apply(part(1, 5, vec![file("c", 4096, 5)], true));
+    assert!(!m.is_complete(id(1)), "sub is still pending");
+    assert!(m.flags(id(1)).contains(Flags::DONE));
+    assert_eq!(m.totals().pending_dirs, 1);
+    m.apply(listing(3, 6, vec![]));
+    assert!(m.is_complete(id(1)) && m.is_complete(NodeId::ROOT));
+    assert_eq!(m.counts(id(1)), (3, 1));
+    assert_eq!(m.children(id(1)).len(), 4);
+}
+
+#[test]
+fn a_part_after_the_last_is_ignored() {
+    let mut m = model();
+    m.apply(listing(0, 1, vec![dir("big")]));
+    m.apply(part(1, 2, vec![file("a", 4096, 1)], true));
+    let totals = m.totals();
+    m.apply(part(1, 3, vec![file("stray", 4096, 1)], false));
+    m.apply(part(1, 3, vec![file("stray", 4096, 1)], true));
+    assert_eq!(m.totals(), totals);
+    assert!(!m.exists(id(3)));
+}
+
+#[test]
+fn parts_of_a_stopped_scan_leave_the_folder_unfinished() {
+    let mut m = model();
+    m.apply(listing(0, 1, vec![dir("big")]));
+    m.apply(part(1, 2, vec![file("a", 4096, 1)], false));
+    m.apply(ScanMsg::Done { cancelled: true });
+    assert!(!m.is_complete(id(1)) && !m.is_complete(NodeId::ROOT));
+    assert!(m.flags(id(1)).contains(Flags::INCOMPLETE));
 }

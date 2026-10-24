@@ -161,6 +161,7 @@ pub struct Model {
     rescan_roots: HashSet<NodeId>,
     /// The folder a delete is running on.
     delete_target: Option<NodeId>,
+    incremental_top: bool,
 }
 
 /// Sums of one listing, applied to the directory and its ancestors in a single walk.
@@ -217,7 +218,15 @@ impl Model {
             focus: None,
             rescan_roots: HashSet::new(),
             delete_target: None,
+            incremental_top: false,
         }
+    }
+
+    /// Capacity of the per-node arrays, in nodes. A change means the arrays were regrown
+    /// (diagnostics for slow apply steps).
+    #[doc(hidden)]
+    pub fn node_capacity(&self) -> usize {
+        self.tree.capacity()
     }
 
     pub fn root(&self) -> NodeId {
@@ -363,7 +372,8 @@ impl Model {
                 dir,
                 first_id,
                 entries,
-            } => self.apply_listing(dir, first_id, entries),
+                last,
+            } => self.apply_listing(dir, first_id, entries, last),
             ScanMsg::DirIssue { dir, op, kind } => self.apply_dir_issue(dir, op, kind),
             ScanMsg::Cancelled { dir } => self.apply_cancelled(dir),
             ScanMsg::Done { cancelled } => self.apply_done(cancelled),
@@ -376,7 +386,8 @@ impl Model {
         self.tree.exists(id) && self.kind(id) == Kind::Dir && !self.flags(id).contains(Flags::DONE)
     }
 
-    fn apply_listing(&mut self, dir: NodeId, first_id: NodeId, entries: Vec<RawEntry>) {
+    /// One part of a directory listing; only the `last` one completes the directory.
+    fn apply_listing(&mut self, dir: NodeId, first_id: NodeId, entries: Vec<RawEntry>, last: bool) {
         if !self.is_open_dir(dir) {
             return;
         }
@@ -401,7 +412,7 @@ impl Model {
         if dir == NodeId::ROOT {
             self.top_total += delta.descended_dirs;
         }
-        self.finish_dir(dir, &delta);
+        self.finish_dir(dir, &delta, last);
     }
 
     fn insert_entry(
@@ -480,7 +491,8 @@ impl Model {
     }
 
     /// Adds the listing's sums to `dir` and its ancestors and retires `dir`'s own pending job.
-    fn finish_dir(&mut self, dir: NodeId, delta: &ListingDelta) {
+    /// With `retire` false (a part before the last) the directory's own pending job stays.
+    fn finish_dir(&mut self, dir: NodeId, delta: &ListingDelta, retire: bool) {
         let top = self.top_level_ancestor(dir);
         let top_was_complete = top.is_some_and(|t| self.is_complete(t));
         let mut cur = Some(dir);
@@ -491,9 +503,15 @@ impl Model {
             self.tree.files[i] += delta.files;
             self.tree.dirs[i] += delta.dirs;
             let pending = self.tree.pending_dirs[i] + delta.descended_dirs;
-            debug_assert!(pending >= 1, "pending_dirs underflow at {n:?}");
-            self.tree.pending_dirs[i] = pending - 1;
+            debug_assert!(
+                pending >= u32::from(retire),
+                "pending_dirs underflow at {n:?}"
+            );
+            self.tree.pending_dirs[i] = pending - u32::from(retire);
             cur = self.parent(n);
+        }
+        if !retire {
+            return;
         }
         self.mark_done(dir);
         self.rescan_roots.remove(&dir);
@@ -526,12 +544,12 @@ impl Model {
             return;
         }
         if self.is_tombstoned(dir) {
-            self.finish_dir(dir, &ListingDelta::default());
+            self.finish_dir(dir, &ListingDelta::default(), true);
             return;
         }
         self.record_issue(dir, op, kind);
         self.tree.flags[dir.0 as usize].insert(flags_for_issue(kind));
-        self.finish_dir(dir, &ListingDelta::default());
+        self.finish_dir(dir, &ListingDelta::default(), true);
     }
 
     fn apply_cancelled(&mut self, dir: NodeId) {
@@ -547,7 +565,7 @@ impl Model {
                 self.tree.inexact_dirs[i] += 1;
             }
         }
-        self.finish_dir(dir, &ListingDelta::default());
+        self.finish_dir(dir, &ListingDelta::default(), true);
     }
 
     fn apply_done(&mut self, cancelled: bool) {
@@ -585,10 +603,15 @@ impl Model {
 
     /// The largest files by size, biggest first, ties by smaller `NodeId`.
     pub fn top_files(&self, mode: SizeMode) -> Vec<NodeId> {
-        match mode {
+        let mut list = match mode {
             SizeMode::Disk => self.indexes.top_disk.sorted(),
             SizeMode::Apparent => self.indexes.top_apparent.sorted(),
+        };
+        if self.top_updating() {
+            // The old lists may still name nodes that were removed.
+            list.retain(|&n| self.tree.exists(n));
         }
+        list
     }
 
     /// Per-category sums of the per-extension totals, largest disk size first.
@@ -605,15 +628,82 @@ impl Model {
         all
     }
 
-    /// Rebuilds the top-N lists from all files (after a delete). O(files).
+    /// Rebuilds the top-N lists from all files, all at once. O(files); the app prefers
+    /// `start_top_rebuild` and `step_top_rebuild`.
     pub fn recompute_top(&mut self) {
-        self.indexes.clear_top();
-        for i in 0..self.tree.len() {
-            let id = NodeId(i as u32);
-            if self.tree.exists(id) && self.tree.kind[i] == Kind::File && self.is_counted(id) {
-                self.indexes
-                    .offer_top(id, self.tree.agg_disk[i], self.tree.agg_apparent[i]);
+        self.start_top_rebuild();
+        while !self.step_top_rebuild(std::time::Duration::MAX) {}
+    }
+
+    /// Starts rebuilding the top-N lists in small steps (see `step_top_rebuild`); until it
+    /// finishes `top_files` keeps returning the old lists, minus removed nodes.
+    pub fn start_top_rebuild(&mut self) {
+        self.indexes.begin_rebuild(self.tree.len());
+    }
+
+    /// Does about `budget` of the rebuild. Returns true when no rebuild is running.
+    pub fn step_top_rebuild(&mut self, budget: std::time::Duration) -> bool {
+        const BATCH: usize = 1024;
+        let Some((mut next, end)) = self.indexes.rebuild_range() else {
+            return true;
+        };
+        let started = std::time::Instant::now();
+        loop {
+            let stop = (next + BATCH).min(end);
+            for i in next..stop {
+                let id = NodeId(i as u32);
+                if self.tree.exists(id) && self.tree.kind[i] == Kind::File && self.is_counted(id) {
+                    self.indexes.rebuild_offer(
+                        id,
+                        self.tree.agg_disk[i],
+                        self.tree.agg_apparent[i],
+                    );
+                }
             }
+            next = stop;
+            self.indexes.rebuild_advance(next);
+            if next >= end {
+                self.indexes.finish_rebuild();
+                // Deletes during the rebuild may have emptied the new lists' exact part;
+                // the next pass starts clean.
+                if self.indexes.top_needs_rebuild() {
+                    self.start_top_rebuild();
+                    return false;
+                }
+                return true;
+            }
+            if started.elapsed() >= budget {
+                return false;
+            }
+        }
+    }
+
+    /// A rebuild of the top-N lists is in progress (the Largest view shows `updating…`).
+    pub fn top_updating(&self) -> bool {
+        self.indexes.rebuilding()
+    }
+
+    /// Changes whenever the top-N lists were replaced by a finished rebuild.
+    pub fn top_epoch(&self) -> u64 {
+        self.indexes.epoch()
+    }
+
+    /// After a delete or rescan, rebuild the top-N lists in steps (the app calls
+    /// `step_top_rebuild` every loop iteration) instead of all at once. Off by default.
+    pub fn set_incremental_top(&mut self, on: bool) {
+        self.incremental_top = on;
+    }
+
+    /// Called after nodes were removed or changed: if a list can no longer show its top
+    /// `n`, start the stepped rebuild (or redo the lists at once).
+    pub(super) fn refresh_top(&mut self) {
+        if self.top_updating() || !self.indexes.top_needs_rebuild() {
+            return;
+        }
+        if self.incremental_top {
+            self.start_top_rebuild();
+        } else {
+            self.recompute_top();
         }
     }
 

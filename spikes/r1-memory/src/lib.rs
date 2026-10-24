@@ -294,8 +294,8 @@ impl Iterator for Stream {
         Some(ScanMsg::Listing {
             dir,
             first_id: NodeId(first_id),
-            entries,
-        })
+            entries, last: true,
+})
     }
 }
 
@@ -343,7 +343,8 @@ mod tests {
                 dir,
                 first_id,
                 entries: es,
-            } = &msg
+..
+} = &msg
             {
                 assert!(known.contains(dir), "{dir:?} listed before its parent");
                 for (i, e) in es.iter().enumerate() {

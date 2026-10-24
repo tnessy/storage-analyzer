@@ -13,7 +13,7 @@ use std::time::Duration;
 use super::ScanOptions;
 use super::control::ScanControl;
 use super::fs::{Errno, FsAccess, StatInfo};
-use super::msg::{RawEntry, ScanMsg};
+use super::msg::{LISTING_PART_ENTRIES, RawEntry, ScanMsg};
 use super::queue::{Job, Popped, Queue};
 use crate::types::{IssueKind, Kind, NodeId, Op};
 
@@ -255,12 +255,25 @@ impl<F: FsAccess> Worker<F> {
                 depth: job.depth + 1,
             })
             .collect();
-        // The listing goes out before any child job exists (ordering contract).
-        let sent = shared.send(ScanMsg::Listing {
-            dir: job.dir,
-            first_id: NodeId(first),
-            entries,
-        });
+        // The listing goes out before any child job exists (ordering contract), in parts of
+        // at most LISTING_PART_ENTRIES; ids stay contiguous across the parts.
+        let mut next = first;
+        let mut rest = entries.into_iter();
+        let sent = loop {
+            let part: Vec<RawEntry> = rest.by_ref().take(LISTING_PART_ENTRIES).collect();
+            let part_len = part.len() as u32;
+            let last = rest.len() == 0;
+            let delivered = shared.send(ScanMsg::Listing {
+                dir: job.dir,
+                first_id: NodeId(next),
+                entries: part,
+                last,
+            });
+            next += part_len;
+            if !delivered || last {
+                break delivered;
+            }
+        };
         if sent && !shared.control.is_cancel_all() {
             for child in children {
                 shared.queue.push(child);

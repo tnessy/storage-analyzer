@@ -84,3 +84,29 @@ TARGET: tree_row_build_ms_1000k=83.8 (target 50)
 1. **Process RSS is 4.3 GiB with 2 or more walker threads but 2.4 GiB with 1 thread** on the same 19.85 M entries (model alone about 2.4-2.9 GiB, see R1). The extra 1.8-1.9 GiB is not explained by: the channel size (16 / 1024 / 65 536 messages give 4.2 / 4.4 / 4.8 GiB), or glibc arenas (`MALLOC_ARENA_MAX=1` and `=2` give 4.1-4.2 GiB). It is not verified whether it is model growth under out-of-order id blocks, allocator fragmentation from entries allocated by workers and freed by the main thread, or something else. A heap profile (or jemalloc counters) is the next step; it matters for the R1 budget, since the real process, not the model, is what the user sees.
 2. The `apply` tick spikes (above) and the 1 M-child row build are the two places where the 50 ms input target can be missed.
 3. `recompute_top` at 0.4-0.6 s on 20 M entries.
+
+## T030: apply stalls (diagnosis and fix)
+`scan_harness --diag-ticks` logs every tick of 20 ms or more with its messages, whether the node arrays were regrown, and the thread's minor/major page faults and involuntary context switches during the tick ($HOME, 4 threads, warm).
+
+**Diagnosis (before the fixes).** 5-7 ticks of 20-119 ms per scan. Every one of them was caused by a *single* `apply` of an ordinary message (at most 260 entries, so **not** big listings, cause B) that took 20-108 ms and showed **20 k-100 k minor page faults and no major ones**:
+| tick | node arrays regrown | what it was |
+|---|---|---|
+| 38-56 ms (2 per scan) | yes | doubling of the per-node arrays (cause A) |
+| 21-62 ms (2-3 per scan) | no | **not** explained by A: compute- or fault-bound single messages |
+| 108-119 ms (1 per scan, the same message count every run: 113 messages, largest 260 entries) | no | deterministic, same point each run: looks like a hash-table rehash. The hard-link map is the only unbounded hash table in the model |
+
+**Fixes, one at a time:**
+| state | slow ticks (>= 20 ms) | tick max |
+|---|---|---|
+| before | 5-7 | 110-119 ms |
+| + 64 k-element blocks for the node arrays and 1 MiB blocks for names (nothing is copied or zeroed when they grow) | 2 | 81-90 ms |
+| + hard-link table split into 256 small hash maps (a growing map rehashes only its own 1/256) | **0** (2 of 3 runs; the third had 5 ticks of 21-29 ms with 1-2 preemptions each, on a loaded machine) | **8.6-13 ms** |
+| final, 4 more runs ($HOME 19.87 M entries) | 0 | 9.2, 9.2, 9.3 ms (4 threads), 11.4 ms (16 threads); p99 0.3-3.3 ms |
+
+```
+TARGET: apply_tick_max_ms=9.2 (target 50)    (was 118-147)
+```
+Pure apply speed went up as well (2.6-3.1 M entries/s, was 2.3-2.8) and RSS down about 4 % (4.08 GiB vs 4.25 GiB at 4 threads), because blocks are filled as needed instead of doubled.
+
+- **Big listings** are now sent in parts of at most 8,192 entries (contract `Listing { .., last }`); only the `last` part completes the folder and releases its child jobs. On this data no message was larger than 260 entries in the slow ticks, so the split is a safeguard for folders with 100 k+ entries, tested with a fake 20,000-entry folder (parts 8192 + 8192 + 3616) and a real 10,000-file folder (du-equal on tmpfs and btrfs).
+- **`recompute_top` is resumable**: `start_top_rebuild()` and `step_top_rebuild(budget)` (the old call is the two combined). On the final 19.87 M-entry model the blocking call takes 412-515 ms; in 5 ms steps it is 80-104 steps with the longest 5.0-5.1 ms. While it runs `top_files` keeps returning the old lists minus removed nodes, files listed meanwhile are added, and `top_updating()` / `top_epoch()` tell the UI. It is **off by default** (`Model::set_incremental_top(false)`): deletes and rescans still recompute at once until the app steps the rebuild.

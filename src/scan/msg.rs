@@ -2,6 +2,10 @@
 
 use crate::types::{IssueKind, Kind, NodeId, Op};
 
+/// Most entries in one `Listing` part; larger directories are split so that no single
+/// apply step on the main thread takes more than a few milliseconds.
+pub const LISTING_PART_ENTRIES: usize = 8192;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RawEntry {
     pub name: Box<[u8]>,
@@ -17,10 +21,15 @@ pub struct RawEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScanMsg {
     /// The entries' ids are `first_id .. first_id + entries.len()`.
+    ///
+    /// A directory with more than `LISTING_PART_ENTRIES` entries arrives in several parts
+    /// with contiguous ids; only the `last` part completes the directory, and its child
+    /// jobs are queued after it (design §4).
     Listing {
         dir: NodeId,
         first_id: NodeId,
         entries: Vec<RawEntry>,
+        last: bool,
     },
     /// Counts as "listed" for `pending_dirs`.
     DirIssue {

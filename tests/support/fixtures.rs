@@ -229,6 +229,17 @@ impl Drop for M8Tree {
     }
 }
 
+/// Flushes `path`'s filesystem. btrfs settles `st_blocks` of fresh files only after
+/// write-back, so a scan and `du` could otherwise see different block counts.
+pub fn sync_fs(path: &Path) {
+    let status = Command::new("sync").arg("-f").arg(path).status();
+    assert!(
+        status.is_ok_and(|s| s.success()),
+        "sync -f {} failed",
+        path.display()
+    );
+}
+
 /// `SA_TEST_BTRFS_DIR`, if set: a writable directory on btrfs.
 pub fn btrfs_dir() -> Option<PathBuf> {
     std::env::var_os("SA_TEST_BTRFS_DIR").map(PathBuf::from)

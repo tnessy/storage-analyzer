@@ -55,6 +55,7 @@ fn listing(dir: u32, first_id: u32, entries: Vec<RawEntry>) -> ScanMsg {
         dir: NodeId(dir),
         first_id: NodeId(first_id),
         entries,
+        last: true,
     }
 }
 

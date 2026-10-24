@@ -99,6 +99,7 @@ fn listing(dir: u32, first_id: u32, entries: Vec<RawEntry>) -> ScanMsg {
         dir: NodeId(dir),
         first_id: NodeId(first_id),
         entries,
+        last: true,
     }
 }
 
@@ -364,4 +365,141 @@ fn files_take_their_category_from_the_extension() {
     ));
     assert_eq!(m.category_of_node(NodeId(1)), Category::Video);
     assert_eq!(m.category_of_node(NodeId(2)), Category::Binary);
+}
+
+// ---- resumable top-N rebuild (T030) ------------------------------------------
+
+use std::time::Duration;
+
+fn big_model(files: u32) -> Model {
+    let mut m = model(20);
+    m.apply(listing(0, 1, vec![dir("d")]));
+    let entries: Vec<RawEntry> = (0..files)
+        .map(|i| {
+            file(
+                &format!("f{i}.dat"),
+                4096 * u64::from(1 + (i * 7919) % 1000),
+                u64::from(i),
+            )
+        })
+        .collect();
+    for (k, chunk) in entries.chunks(4000).enumerate() {
+        m.apply(ScanMsg::Listing {
+            dir: NodeId(1),
+            first_id: NodeId(2 + (k as u32) * 4000),
+            entries: chunk.to_vec(),
+            last: false,
+        });
+    }
+    m.apply(ScanMsg::Listing {
+        dir: NodeId(1),
+        first_id: NodeId(2 + files),
+        entries: vec![],
+        last: true,
+    });
+    m
+}
+
+#[test]
+fn a_stepped_rebuild_gives_the_same_lists_in_bounded_steps() {
+    let mut m = big_model(50_000);
+    let (disk, apparent) = (m.top_files(D), m.top_files(A));
+    assert!(!m.top_updating());
+    let epoch = m.top_epoch();
+
+    m.start_top_rebuild();
+    assert!(m.top_updating());
+    assert_eq!(m.top_files(D), disk, "the old list stays visible meanwhile");
+    let mut steps = 0;
+    while !m.step_top_rebuild(Duration::ZERO) {
+        steps += 1;
+        assert!(steps < 1000, "never finishes");
+    }
+    assert!(
+        steps >= 40,
+        "work is spread over many small steps, got {steps}"
+    );
+    assert!(!m.top_updating());
+    assert_ne!(m.top_epoch(), epoch);
+    assert_eq!((m.top_files(D), m.top_files(A)), (disk, apparent));
+}
+
+#[test]
+fn nodes_removed_during_a_rebuild_never_show_up() {
+    let mut m = big_model(20_000);
+    m.set_incremental_top(true);
+    m.start_top_rebuild();
+    assert!(!m.step_top_rebuild(Duration::ZERO));
+    let biggest = m.top_files(D)[0];
+    m.begin_rescan(NodeId(1)); // removes every file; restarts the rebuild
+    assert!(!m.exists(biggest));
+    assert!(
+        m.top_files(D).is_empty(),
+        "the old list is filtered, not shown"
+    );
+    while !m.step_top_rebuild(Duration::from_millis(5)) {}
+    assert!(m.top_files(D).is_empty());
+}
+
+#[test]
+fn a_file_listed_while_a_rebuild_runs_makes_the_new_lists() {
+    let mut m = model(5);
+    m.apply(listing(0, 1, vec![dir("a"), dir("b")]));
+    m.apply(listing(
+        1,
+        3,
+        (0..3000).map(|i| file(&format!("f{i}"), 4096, 1)).collect(),
+    ));
+    m.start_top_rebuild();
+    assert!(!m.step_top_rebuild(Duration::ZERO));
+    m.apply(listing(
+        2,
+        3003,
+        vec![file("giant.bin", 900_000_000, 800_000_000)],
+    ));
+    while !m.step_top_rebuild(Duration::ZERO) {}
+    assert_eq!(m.top_files(D)[0], NodeId(3003));
+    assert_eq!(m.top_files(A)[0], NodeId(3003));
+    assert_eq!(m.top_files(D).len(), 5);
+}
+
+#[test]
+fn deletes_and_rescans_rebuild_in_steps_only_when_asked() {
+    let build = || {
+        let mut m = model(10);
+        m.apply(listing(0, 1, vec![dir("a"), dir("b")]));
+        m.apply(listing(
+            1,
+            3,
+            (0..100)
+                .map(|i| file(&format!("f{i}"), 4096 * (i + 1), 1))
+                .collect(),
+        ));
+        m.apply(listing(
+            2,
+            103,
+            (0..100)
+                .map(|i| file(&format!("g{i}"), 4096 * (i + 2), 1))
+                .collect(),
+        ));
+        m
+    };
+    let mut blocking = build();
+    blocking.begin_rescan(NodeId(1));
+    assert!(
+        !blocking.top_updating(),
+        "by default the lists are rebuilt at once"
+    );
+    assert!(blocking.top_files(D).iter().all(|&n| n.0 >= 103));
+
+    let mut stepped = build();
+    stepped.set_incremental_top(true);
+    stepped.begin_rescan(NodeId(1));
+    assert!(stepped.top_updating());
+    assert!(
+        stepped.top_files(D).iter().all(|&n| stepped.exists(n)),
+        "no removed node is listed"
+    );
+    while !stepped.step_top_rebuild(Duration::from_millis(5)) {}
+    assert_eq!(stepped.top_files(D), blocking.top_files(D));
 }

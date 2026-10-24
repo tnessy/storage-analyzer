@@ -10,7 +10,7 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use fixtures::{du_with, locations, m8_tree, scan_to_done};
+use fixtures::{du_with, locations, m8_tree, scan_to_done, sync_fs};
 use storage_analyzer::model::{Flags, Model};
 use storage_analyzer::types::{IssueKind, Kind, NodeId, Op, SizeMode};
 
@@ -223,5 +223,35 @@ fn scanning_changes_no_access_or_modification_time() {
             before, after,
             "{place}: atime/mtime/size/mode changed by the scan"
         );
+    }
+}
+
+#[test]
+fn a_folder_of_ten_thousand_files_arrives_in_parts_and_still_equals_du() {
+    for (place, base) in locations() {
+        let tmp = match &base {
+            Some(dir) => tempfile::tempdir_in(dir).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        };
+        let big = tmp.path().join("big");
+        fs::create_dir(&big).unwrap();
+        for i in 0..10_000 {
+            fs::write(big.join(format!("f{i:05}")), vec![b'x'; 1 + i % 7000]).unwrap();
+        }
+        sync_fs(tmp.path());
+        let m = scan_to_done(tmp.path(), 4, true);
+        assert_eq!(
+            m.size(NodeId::ROOT, D),
+            du_with(tmp.path(), false, true),
+            "disk {place}"
+        );
+        assert_eq!(
+            m.size(NodeId::ROOT, A),
+            du_with(tmp.path(), true, true),
+            "apparent {place}"
+        );
+        let big_id = find_by_name(&m, b"big").unwrap();
+        assert_eq!(m.children(big_id).len(), 10_000);
+        assert!(m.is_complete(NodeId::ROOT));
     }
 }

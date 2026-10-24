@@ -22,21 +22,42 @@ pub enum Removal {
     Counted(Option<NodeId>),
 }
 
-#[derive(Debug, Default)]
+/// The table is split into this many hash maps: a map that grows rehashes all of itself
+/// in one step, and one huge map would stall a single `apply` for tens of milliseconds.
+const SHARDS: usize = 256;
+
+type Table = HashMap<(u64, u64), HardLink>;
+
+#[derive(Debug)]
 pub struct HardLinks {
-    map: HashMap<(u64, u64), HardLink>,
+    shards: Vec<Table>,
+}
+
+impl Default for HardLinks {
+    fn default() -> Self {
+        HardLinks {
+            shards: (0..SHARDS).map(|_| Table::new()).collect(),
+        }
+    }
 }
 
 impl HardLinks {
+    fn shard(&mut self, dev: u64, ino: u64) -> &mut Table {
+        let mixed =
+            (ino ^ dev.wrapping_mul(0x9E37_79B9_7F4A_7C15)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        &mut self.shards[(mixed >> 56) as usize % SHARDS]
+    }
+
     /// Registers an occurrence. Returns `true` if it is a duplicate, which is not charged.
     pub fn register(&mut self, dev: u64, ino: u64, node: NodeId) -> bool {
-        match self.map.get_mut(&(dev, ino)) {
+        let map = self.shard(dev, ino);
+        match map.get_mut(&(dev, ino)) {
             Some(link) => {
                 link.others.push(node);
                 true
             }
             None => {
-                self.map.insert(
+                map.insert(
                     (dev, ino),
                     HardLink {
                         counted: node,
@@ -57,7 +78,8 @@ impl HardLinks {
         node: NodeId,
         alive: impl Fn(NodeId) -> bool,
     ) -> Removal {
-        let Some(link) = self.map.get_mut(&(dev, ino)) else {
+        let map = self.shard(dev, ino);
+        let Some(link) = map.get_mut(&(dev, ino)) else {
             return Removal::NotFound;
         };
         if link.counted != node {
@@ -75,22 +97,47 @@ impl HardLinks {
                 Removal::Counted(Some(link.counted))
             }
             None => {
-                self.map.remove(&(dev, ino));
+                map.remove(&(dev, ino));
                 Removal::Counted(None)
             }
         }
     }
 
+    #[cfg(test)]
+    pub fn largest_table(&self) -> usize {
+        self.shards.iter().map(Table::len).max().unwrap_or(0)
+    }
+
     /// Read side for T011's `delete_check`; drop the `cfg` there.
     #[cfg(test)]
-    pub fn get(&self, dev: u64, ino: u64) -> Option<&HardLink> {
-        self.map.get(&(dev, ino))
+    pub fn get(&mut self, dev: u64, ino: u64) -> Option<&HardLink> {
+        self.shard(dev, ino).get(&(dev, ino))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_spread_over_many_small_tables_so_none_rehashes_in_one_big_step() {
+        let mut h = HardLinks::default();
+        for i in 0..100_000u64 {
+            h.register(1, 1_000_000 + i * 3, NodeId(i as u32));
+        }
+        // Growing a table rehashes all of it; keeping each one small keeps that step short.
+        assert!(
+            h.largest_table() < 800,
+            "largest table {}",
+            h.largest_table()
+        );
+        for i in (0..100_000u64).step_by(7919) {
+            assert_eq!(
+                h.get(1, 1_000_000 + i * 3).unwrap().counted,
+                NodeId(i as u32)
+            );
+        }
+    }
 
     #[test]
     fn removing_the_charged_link_promotes_the_first_live_duplicate() {

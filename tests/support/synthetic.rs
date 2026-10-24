@@ -34,6 +34,7 @@ pub fn listing(dir: NodeId, first_id: u32, entries: Vec<RawEntry>) -> ScanMsg {
         dir,
         first_id: NodeId(first_id),
         entries,
+        last: true,
     }
 }
 

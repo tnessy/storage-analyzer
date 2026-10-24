@@ -130,6 +130,7 @@ impl Paths {
             dir,
             first_id,
             entries,
+            ..
         } = msg
         {
             let base = self.map[dir].clone();
@@ -169,6 +170,7 @@ fn listings_follow_the_ordering_contract_and_cover_the_tree() {
             dir,
             first_id,
             entries,
+            ..
         } = m
         {
             assert!(
@@ -222,6 +224,7 @@ fn single_thread_lists_shallow_directories_first() {
             dir,
             first_id,
             entries,
+            ..
         } = m
         {
             let d = depth_of[dir];
@@ -401,6 +404,7 @@ fn rescan_after_done_relists_with_fresh_ids_and_reports_done_again() {
         dir,
         first_id,
         entries,
+        ..
     } = &again[1]
     else {
         panic!("{again:?}")
@@ -829,4 +833,90 @@ fn rescan_many_clears_a_stop_like_rescan_does() {
             break;
         }
     }
+}
+
+#[test]
+fn a_folder_over_8192_entries_arrives_in_parts_and_its_children_after_the_last() {
+    let fs = FakeFs::new("/r");
+    fs.dir("/r/big");
+    for d in 0..3 {
+        fs.dir(&format!("/r/big/sub{d}"))
+            .file(&format!("/r/big/sub{d}/f"), 4096, 1);
+    }
+    for i in 0..19_997 {
+        fs.file(&format!("/r/big/f{i}"), 4096, 1);
+    }
+    let mut run = begin(fs, "/r", 4, true);
+    let msgs = run.until_done();
+
+    let mut paths = Paths::new("/r");
+    let mut order = Vec::new();
+    let mut parts = Vec::new();
+    for m in &msgs {
+        paths.feed(m);
+        if let ScanMsg::Listing {
+            dir,
+            first_id,
+            entries,
+            last,
+        } = m
+        {
+            order.push(paths.of(*dir).to_path_buf());
+            if paths.of(*dir) == Path::new("/r/big") {
+                parts.push((first_id.0, entries.len(), *last));
+            }
+        }
+    }
+    assert_eq!(
+        parts.iter().map(|p| p.1).collect::<Vec<_>>(),
+        vec![8192, 8192, 3616],
+        "{parts:?}"
+    );
+    assert_eq!(
+        parts.iter().map(|p| p.2).collect::<Vec<_>>(),
+        vec![false, false, true]
+    );
+    assert_eq!(parts[1].0, parts[0].0 + 8192, "contiguous ids");
+    assert_eq!(parts[2].0, parts[1].0 + 8192);
+
+    let last_part = order
+        .iter()
+        .rposition(|p| p == Path::new("/r/big"))
+        .unwrap();
+    let below_big = |p: &PathBuf| p != Path::new("/r/big") && p.starts_with("/r/big");
+    let first_child = order.iter().position(below_big).unwrap();
+    assert!(
+        last_part < first_child,
+        "children listed before the last part: {order:?}"
+    );
+    assert_eq!(order.iter().filter(|p| below_big(p)).count(), 3);
+}
+
+#[test]
+fn small_folders_send_one_part_marked_last() {
+    let mut run = begin(FakeFs::generate("/r", 2, 2, 3), "/r", 2, true);
+    let msgs = run.until_done();
+    for m in &msgs {
+        if let ScanMsg::Listing { last, .. } = m {
+            assert!(*last);
+        }
+    }
+}
+
+#[test]
+fn an_empty_folder_sends_one_empty_last_part() {
+    let fs = FakeFs::new("/r");
+    fs.dir("/r/empty");
+    let mut run = begin(fs, "/r", 1, true);
+    let msgs = run.until_done();
+    let empty: Vec<_> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            ScanMsg::Listing {
+                dir, entries, last, ..
+            } if dir.0 == 1 => Some((entries.len(), *last)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(empty, vec![(0, true)]);
 }

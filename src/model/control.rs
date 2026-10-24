@@ -111,6 +111,17 @@ impl Model {
             self.forget_node(n);
         }
         self.remove_issues_of(&nodes);
+        if keep_root && id == NodeId::ROOT {
+            // Nothing is left to rank; the new scan fills the lists again.
+            self.indexes.reset_top();
+        } else {
+            let files: std::collections::HashSet<NodeId> = nodes
+                .iter()
+                .copied()
+                .filter(|n| self.tree.kind[n.0 as usize] == Kind::File)
+                .collect();
+            self.indexes.forget_top(&files);
+        }
 
         let ancestors: Vec<NodeId> = self.tree.chain(id).skip(usize::from(!keep_root)).collect();
         // With `keep_root`, `id` itself loses the descendants' sums too (but keeps its own size).
@@ -140,7 +151,7 @@ impl Model {
             }
         }
         self.adjust_top_done(top, top_was_complete);
-        self.recompute_top();
+        self.refresh_top();
     }
 
     /// What leaves the ancestors: the descendants' sums, plus the node itself unless `keep_root`.
@@ -325,6 +336,11 @@ impl Model {
         }
         let i = node.0 as usize;
         let old_is_dir = self.tree.kind[i] == Kind::Dir;
+        if self.tree.kind[i] == Kind::File {
+            // Its size changes: the old entry must not stay in the lists.
+            self.indexes
+                .forget_top(&std::collections::HashSet::from([node]));
+        }
         let (old_disk, old_apparent) = (self.tree.own_disk[i], self.tree.own_apparent[i]);
         let top = self.top_level_ancestor(node).filter(|&t| t != node);
         let top_was_complete = top.is_some_and(|t| self.top_counted(t) && self.is_complete(t));
@@ -420,7 +436,7 @@ impl Model {
             );
         }
         if !old_is_dir || !new_is_dir {
-            self.recompute_top();
+            self.refresh_top();
         }
         self.adjust_top_done(top, top_was_complete);
     }
