@@ -66,3 +66,27 @@ Without that, every large delete would show `updating…` for about 1.5 s. Archi
 
 **Commit plan:** Parts 1–3 can't be split cleanly from the working tree any more, because round 2 is interleaved in `index.rs`/`mod.rs` and I no longer have the verified snapshot. **T030 is committed as one change after round 2** passes verification. That also keeps the architect's rule that users never get a rebuild on every delete. **T030b (engineer-2) lands only after round 2** (already its stated dependency), so the wiring and the reserve reach users together.
 - **R2-8, flaky harness smoke test** (from T009, found in the T029 verification): `the_harness_loop_reaches_done_with_every_entry_applied` fails about 14 % of runs (`!report.ticks.is_empty()`), because a small tree can finish within the first tick. Assert on the entries applied and on reaching Done, not on the tick count; or record at least one tick unconditionally. **Prove it:** 200 runs, 0 failures.
+
+## Round 2 verification (2026-10-23): APPROVED, committed as one hash-checked snapshot
+**Fresh evidence** (clean worktree: HEAD plus exactly the 21 T030 files; hashes re-checked before staging):
+- fmt ok, whole-tree clippy clean;
+- every suite passes twice with `--no-fail-fast`;
+- doc tests ok, release build ok;
+- `top_reserve` 30/30, and `PROPTEST_CASES=2000` once;
+- **the harness smoke test passes 200/200** (it failed 14/100 at HEAD before this);
+- btrfs parity 60/60.
+
+**Architect's criteria:**
+- **2:** a delete with no listed file → no rebuild ✓.
+- **3:** the property test covers out-of-order listings, deletes, and folder/root rescans mid-rebuild, in both modes. It found a real bug (rebuilt lists emptied by a mid-rebuild delete), which is now fixed with a second pass, and its shrunk seed is committed ✓.
+- **5:** real deletes on `$HOME` measured with no rebuild needed (`~/xiv` 5 ms, `~/workspace` 80 ms, `~/Downloads` 1 ms). A full rebuild is estimated at 0.4–0.9 s of stepped work, but no real folder triggered one. Accepted as measured-by-proxy.
+- **6:** the reserve absorbs partial removals ✓.
+- **R2-7:** root rescan resets and cancels ✓.
+
+**Item status:**
+- **R2-1, `sync` in the btrfs fixtures: not done.** 0/60 failures this run, but the race is real (I reproduced 1/60 earlier, and `sync` fixed it). It is test hygiene for an opt-in test, so it is **deferred to T030c**.
+- **R2-3, names:** `top_updating()` is accepted instead of the design's `top_rebuild_pending()`, plus `top_epoch()`. **The architect is asked to align design §3.4.**
+- **R2-5, switch:** `set_incremental_top` (off by default) stays until **T030b** turns it on at startup. **T030c** then removes the switch, making incremental the only behaviour, so no dead switch remains.
+- **R2-8:** fixed ✓.
+
+**New finding for the architect:** removing a very large folder from the model is **one ~80 ms step**, above the 50 ms target, once per confirmed delete (`remove_subtree` on `~/workspace`, 316 GB). Should it be made incremental, or accepted? This is pending the architect.

@@ -65,6 +65,7 @@ Inputs: `docs/brief.md` v0.5, `docs/design.md` rev 6 (accepted), `docs/adr/001�
 | T028b | e1 | rescan_many + cancel flag captured under lock (architect low findings on T028) | T028 |
 | T029 | e2 | Escape Unicode bidi/format controls in displayed names (architect, from the T021 review) | T021 |
 | T034 | e2 | Acceptance runbook for M1–M12 (docs only) | — |
+| T030c | e1 | T030 follow-ups: btrfs fixture sync; remove the incremental switch; (maybe) incremental `remove_subtree` | T030, T030b |
 | T030b | e2 | Wire the stepped top-N rebuild into the loop + Largest `updating…` (UX check 22) | T030 round 2, T029 |
 | T030 | e1 | Tick-spike diagnosis + split listings over 8,192 entries (`last` flag); chunked arrays only if growth is confirmed | T009 |
 | T031 | e1 | RSS 4.3 vs 2.4 GiB: malloc_stats/trim, alternative allocator, then fix (allocator or per-listing name buffer) | T009 |
