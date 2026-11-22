@@ -32,6 +32,7 @@ fn opts(threads: usize, one_filesystem: bool) -> ScanOptions {
     ScanOptions {
         threads,
         one_filesystem,
+        skip_pseudo: false,
     }
 }
 

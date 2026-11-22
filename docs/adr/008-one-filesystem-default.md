@@ -8,3 +8,9 @@
 - Consequences: On btrfs, unmounted nested subvolumes inside the root are excluded by default. This is surprising if the user expects them, so the status bar shows "N other-fs skipped".
 - Blast radius / reversibility: One flag default. Trivial to flip.
 - Revisit if: The user expects snapshots or subvolumes included by default.
+
+## Amendment (2026-11-07): cross local filesystems by default
+
+- Default now enters other local filesystems (`/home`, `/tmp`, `/boot`, btrfs subvolumes incl. `.snapshots`) and skips pseudo (proc, sysfs, devtmpfs, cgroup, ...), `fuse.*` and network (nfs, cifs, 9p, ...) mounts, found via `/proc/self/mountinfo` (`scan/mounts.rs`). Skipped ones still show as `(other filesystem)`.
+- `-x` / `--one-file-system` restores the old behaviour; `--cross-filesystems` enters everything.
+- Known cost: btrfs snapshots sharing extents are counted per snapshot, so totals can exceed real usage. `du -sx` parity applies to `-x` only.

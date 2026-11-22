@@ -117,6 +117,7 @@ impl Scan {
             ScanOptions {
                 threads,
                 one_filesystem,
+                skip_pseudo: false,
             },
             Arc::clone(&control),
             tx,

@@ -80,6 +80,7 @@ fn files_that_vanish_between_listing_and_stat_become_vanished_issues() {
         ScanOptions {
             threads: 3,
             one_filesystem: true,
+            skip_pseudo: false,
         },
         control,
         tx,

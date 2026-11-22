@@ -73,7 +73,7 @@ Status: v0.7, 2026-10-24. Labels: **Fact** (user stated), **Assumption**, **Open
   - Given a running scan and an available throughput source, then the status bar shows the current read speed (MiB/s scale; the UI may switch units, for example `0 B/s` or `KiB/s`, as the value requires). It is one sample per second, so the value changes at most once per second. Until the first full 1 s sample exists, the field is hidden.
   - Given the source is unavailable or unreadable (for example no permission, or the device can't be determined), then the speed field is hidden. It never shows a fake 0.
   - Given the source is available and the disk really read nothing (for example a warm cache), then a measured 0 may show. Hidden means "unknown"; 0 means "measured zero".
-  - Given the scan is done, stopped or idle, then the field is not shown (**Assumption**: no stale value).
+  - Given the scan is done, stopped, stopping, starting, or only a subtree rescan after Done is running, then the field is not shown (**Fact**, UX spec §5.2: no stale value). A root rescan restarted with `r` is a real scan again and shows it. This is the intended limit.
   - Given any run, then reading the speed is read-only (M9 holds) and never stalls the UI (M1: input stays responsive, no blocking read on the UI thread).
   - Given an 80-column terminal, then the status bar still fits (the field shortens or drops before elapsed/ETA or `? help` do). No wrapping.
   - **Assumption:** "disk read speed" means bytes read from the storage device during the scan, not bytes the tool processed. Which source and device to read is the architect's call. If the measurable value is the scanning process's reads, the UI label must say so.

@@ -2,6 +2,7 @@
 
 pub mod control;
 pub mod fs;
+pub mod mounts;
 pub mod msg;
 pub mod queue;
 mod walker;
@@ -16,7 +17,10 @@ const MAX_DEFAULT_THREADS: usize = 8;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScanOptions {
     pub threads: usize,
+    /// Never leave the root's filesystem (`-x`).
     pub one_filesystem: bool,
+    /// Do not enter pseudo (proc, sys, dev…) or network filesystems.
+    pub skip_pseudo: bool,
 }
 
 impl ScanOptions {

@@ -36,6 +36,8 @@ struct Shared {
     next_id: AtomicU32,
     root_dev: u64,
     one_filesystem: bool,
+    /// Devices never entered (pseudo and network filesystems).
+    skip_devs: HashSet<u64>,
     /// Set when the handle is closed or the receiver is gone: workers stop, sends are abandoned.
     closing: AtomicBool,
     /// Directories whose next job is a rescan (their identity is refreshed first).
@@ -49,6 +51,13 @@ struct Shared {
 }
 
 impl Shared {
+    /// A folder on another device that this scan must not enter.
+    fn leaves_scope(&self, st: &StatInfo) -> bool {
+        st.kind == Kind::Dir
+            && st.dev != self.root_dev
+            && (self.one_filesystem || self.skip_devs.contains(&st.dev))
+    }
+
     fn is_closing(&self) -> bool {
         self.closing.load(Ordering::Relaxed)
     }
@@ -232,7 +241,7 @@ impl<F: FsAccess> Worker<F> {
             let entry = match self.fs.stat_at(&dir, &name) {
                 Ok(st) => {
                     let mut entry = raw_entry(&name, &st);
-                    if st.kind == Kind::Dir && shared.one_filesystem && st.dev != shared.root_dev {
+                    if shared.leaves_scope(&st) {
                         entry.issue = Some((Op::Stat, IssueKind::OtherFilesystem));
                     }
                     entry
@@ -308,8 +317,7 @@ impl<F: FsAccess> Worker<F> {
             Ok(st) => {
                 let mut entry = raw_entry(name.as_bytes(), &st);
                 // A folder that moved to another device (a mount appeared) is not entered.
-                let elsewhere =
-                    st.kind == Kind::Dir && shared.one_filesystem && st.dev != shared.root_dev;
+                let elsewhere = shared.leaves_scope(&st);
                 if elsewhere {
                     entry.issue = Some((Op::Stat, IssueKind::OtherFilesystem));
                 }
@@ -346,6 +354,11 @@ pub fn start<F: FsAccess + 'static>(
         next_id: AtomicU32::new(first_id),
         root_dev,
         one_filesystem: opts.one_filesystem,
+        skip_devs: if opts.skip_pseudo {
+            super::mounts::system_skipped_devs()
+        } else {
+            HashSet::new()
+        },
         closing: AtomicBool::new(false),
         rescans: Mutex::new(HashSet::new()),
         done_sent: Mutex::new(false),

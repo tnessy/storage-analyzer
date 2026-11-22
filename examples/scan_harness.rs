@@ -324,7 +324,8 @@ fn run_scan(opts: &Opts) -> Report {
         root_dev,
         ScanOptions {
             threads: opts.threads,
-            one_filesystem: !opts.cross_filesystems,
+            one_filesystem: false,
+            skip_pseudo: !opts.cross_filesystems,
         },
         Arc::clone(&control),
         tx,

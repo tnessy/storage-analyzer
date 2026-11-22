@@ -650,6 +650,7 @@ fn live(fs: FakeFs, control: Arc<ScanControl>) -> Live {
         ScanOptions {
             threads: 1,
             one_filesystem: true,
+            skip_pseudo: false,
         },
         Arc::clone(&control),
         tx,

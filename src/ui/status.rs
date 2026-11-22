@@ -145,7 +145,7 @@ pub fn text(state: &AppState, width: usize) -> String {
 /// ` · not scanned (other fs): /home +2`, and the short ` · 3 other fs not scanned`.
 fn other_fs_hint(state: &AppState) -> Option<(String, String)> {
     use std::os::unix::ffi::OsStrExt;
-    if !state.config.one_filesystem {
+    if !state.config.one_filesystem && !state.config.skip_pseudo {
         return None;
     }
     let mut skipped: Vec<(u32, Vec<u8>)> = state

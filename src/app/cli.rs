@@ -16,10 +16,10 @@ struct RawArgs {
     /// Directory to analyze
     #[arg(default_value = ".")]
     path: PathBuf,
-    /// Stay on the root's filesystem (default)
+    /// Stay on the root's filesystem (default: also enter other local ones, not proc/sys/dev or network)
     #[arg(short = 'x', long = "one-file-system")]
     one_file_system: bool,
-    /// Descend into other filesystems
+    /// Descend into every filesystem, including proc, sys and network mounts
     #[arg(long, conflicts_with = "one_file_system")]
     cross_filesystems: bool,
     /// Show apparent size instead of disk usage
@@ -51,7 +51,10 @@ struct RawArgs {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppConfig {
     pub path: PathBuf,
+    /// `-x`: never leave the root's filesystem.
     pub one_filesystem: bool,
+    /// Default: skip pseudo and network filesystems (off with `--cross-filesystems`).
+    pub skip_pseudo: bool,
     pub apparent: bool,
     pub threads: usize,
     pub top: usize,
@@ -65,6 +68,7 @@ impl AppConfig {
         ScanOptions {
             threads: self.threads,
             one_filesystem: self.one_filesystem,
+            skip_pseudo: self.skip_pseudo,
         }
     }
 }
@@ -117,7 +121,8 @@ fn validate(bin: &str, matches: &ArgMatches, raw: RawArgs) -> Result<AppConfig, 
     }
     Ok(AppConfig {
         path: raw.path,
-        one_filesystem: !raw.cross_filesystems,
+        one_filesystem: raw.one_file_system,
+        skip_pseudo: !raw.cross_filesystems,
         apparent: raw.apparent,
         threads,
         top,
@@ -173,7 +178,7 @@ mod tests {
     fn defaults() {
         let c = parse_args(&[]).unwrap();
         assert_eq!(c.path, PathBuf::from("."));
-        assert!(c.one_filesystem && !c.apparent && !c.history && !c.no_animation);
+        assert!(!c.one_filesystem && c.skip_pseudo && !c.apparent && !c.history && !c.no_animation);
         assert_eq!((c.top, c.cell_aspect), (100, 2.0));
         assert!((1..=8).contains(&c.threads));
     }
@@ -194,7 +199,7 @@ mod tests {
             "1.5",
         ])
         .unwrap();
-        assert!(!c.one_filesystem && c.apparent && c.history && c.no_animation);
+        assert!(!c.one_filesystem && !c.skip_pseudo && c.apparent && c.history && c.no_animation);
         assert_eq!(
             (c.path, c.threads, c.top, c.cell_aspect),
             ("/tmp".into(), 3, 7, 1.5)

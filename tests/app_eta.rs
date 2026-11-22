@@ -562,7 +562,7 @@ fn a_late_history_read_moves_the_line_from_unknown_to_estimating_to_an_estimate(
     let (_dir, state) = temp_state_dir();
     let seed = HistoryEntry {
         root: synthetic::ROOT_PATH.into(),
-        one_filesystem: true,
+        one_filesystem: false,
         entries: TOTAL,
         dirs: 10,
         bytes: 1,

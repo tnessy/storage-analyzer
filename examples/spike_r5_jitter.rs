@@ -325,6 +325,7 @@ fn main() -> ExitCode {
     let options = ScanOptions {
         threads: ScanOptions::default_threads(),
         one_filesystem: true,
+        skip_pseudo: false,
     };
     let handle = scan::start(
         Arc::new(RealFs),
