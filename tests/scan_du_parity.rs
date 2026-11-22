@@ -182,16 +182,30 @@ fn an_unreadable_directory_is_one_issue_and_the_rest_completes() {
     assert!(m.children(issue.node).is_empty());
 }
 
+/// The entries of `dir`, read through `O_NOATIME` so that taking the snapshot does not
+/// itself move the directory's access time (it would on a `relatime` mount). Empty for a
+/// directory that cannot be opened.
+fn list_without_atime(dir: &Path) -> Vec<PathBuf> {
+    use rustix::fs::{Dir, Mode, OFlags, open};
+    use std::os::unix::ffi::OsStrExt;
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOATIME;
+    let Ok(fd) = open(dir, flags, Mode::empty()) else {
+        return Vec::new();
+    };
+    Dir::new(fd)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_bytes().to_vec())
+        .filter(|name| name != b"." && name != b"..")
+        .map(|name| dir.join(std::ffi::OsStr::from_bytes(&name)))
+        .collect()
+}
+
 /// Every entry's path, size, kind, mode and times; unreadable directories are not entered.
 fn tree_state(root: &Path) -> Vec<(PathBuf, u64, u32, i64, i64, i64, i64)> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for e in entries {
-            let path = e.unwrap().path();
+        for path in list_without_atime(&dir) {
             let m = fs::symlink_metadata(&path).unwrap();
             out.push((
                 path.clone(),

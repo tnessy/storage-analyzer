@@ -271,9 +271,12 @@ fn exact_dialog_shows_the_numbers_and_only_y_deletes() {
     assert!(s.contains("Delete permanently?"), "{s}");
     // Three 8 KiB files plus whatever the filesystem charges for the two directories
     // (nothing on tmpfs, a block each on ext4).
-    let kib = disk_usage(&r.dir.path().join("big")) as f64 / 1024.0;
+    let freed = format!(
+        "{:.1} KiB",
+        disk_usage(&r.dir.path().join("big")) as f64 / 1024.0
+    );
     assert!(
-        s.contains(&format!("Folder · {kib:.1} KiB (disk usage) · 3 files")),
+        s.contains(&format!("Folder · {freed} (disk usage) · 3 files")),
         "{s}"
     );
     assert!(
@@ -308,7 +311,9 @@ fn exact_dialog_shows_the_numbers_and_only_y_deletes() {
     assert!(r.dialog().is_none());
     let t = r.transient();
     assert!(
-        t.starts_with("Deleted ") && t.contains("freed 24.0 KiB ") && t.contains("(3 files)"),
+        t.starts_with("Deleted ")
+            && t.contains(&format!("freed {freed} "))
+            && t.contains("(3 files)"),
         "{t}"
     );
     // The row leaves the model on the step after the outcome frame.
