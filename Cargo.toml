@@ -3,8 +3,14 @@ name = "storage-analyzer"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
-description = "Disk-usage TUI (placeholder name)"
-publish = false
+description = "Disk-usage TUI for Linux: directory tree plus treemap, live while it scans"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/tnessy/storage-analyzer"
+keywords = ["disk-usage", "tui", "treemap", "du", "cleanup"]
+categories = ["command-line-utilities", "filesystem"]
+# Ship only what `cargo install` needs; tests, docs, spikes and examples stay in the repo.
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
 [lib]
 name = "storage_analyzer"
