@@ -71,6 +71,30 @@ fn fixture() -> tempfile::TempDir {
     dir
 }
 
+/// Allocated bytes of `path` and everything under it, as `du` counts them.
+fn disk_usage(path: &std::path::Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path).unwrap();
+    let own = meta.blocks() * 512;
+    if !meta.is_dir() {
+        return own;
+    }
+    own + std::fs::read_dir(path)
+        .unwrap()
+        .map(|e| disk_usage(&e.unwrap().path()))
+        .sum::<u64>()
+}
+
+/// Replaces the folder at `path` with a new, empty one that has a different inode.
+/// The new folder is created while the old one still exists: ext4 hands a freed inode
+/// number straight back out, so remove-then-create can give the same inode again.
+fn replace_with_new_folder(path: &std::path::Path) {
+    let fresh = path.with_extension("replacement");
+    std::fs::create_dir(&fresh).unwrap();
+    std::fs::remove_dir_all(path).unwrap();
+    std::fs::rename(&fresh, path).unwrap();
+}
+
 fn rig() -> Rig {
     rig_in(fixture())
 }
@@ -245,8 +269,14 @@ fn exact_dialog_shows_the_numbers_and_only_y_deletes() {
     r.chars("d");
     let s = r.screen();
     assert!(s.contains("Delete permanently?"), "{s}");
+    // Three 8 KiB files plus whatever the filesystem charges for the two directories
+    // (nothing on tmpfs, a block each on ext4).
+    let freed = format!(
+        "{:.1} KiB",
+        disk_usage(&r.dir.path().join("big")) as f64 / 1024.0
+    );
     assert!(
-        s.contains("Folder · 24.0 KiB (disk usage) · 3 files"),
+        s.contains(&format!("Folder · {freed} (disk usage) · 3 files")),
         "{s}"
     );
     assert!(
@@ -281,7 +311,9 @@ fn exact_dialog_shows_the_numbers_and_only_y_deletes() {
     assert!(r.dialog().is_none());
     let t = r.transient();
     assert!(
-        t.starts_with("Deleted ") && t.contains("freed 24.0 KiB ") && t.contains("(3 files)"),
+        t.starts_with("Deleted ")
+            && t.contains(&format!("freed {freed} "))
+            && t.contains("(3 files)"),
         "{t}"
     );
     // The row leaves the model on the step after the outcome frame.
@@ -590,9 +622,7 @@ fn a_changed_folder_gives_the_not_deleted_dialog() {
     r.select("small");
     r.chars("d");
     // The folder is replaced between the scan and the confirmation (new inode).
-    let p = r.dir.path().join("small");
-    std::fs::remove_dir_all(&p).unwrap();
-    std::fs::create_dir(&p).unwrap();
+    replace_with_new_folder(&r.dir.path().join("small"));
     r.chars("y");
     r.until("not deleted", |r| {
         matches!(r.dialog(), Some(Dialog::DeleteAborted(_)))
@@ -829,9 +859,7 @@ fn an_aborted_outcome_shows_its_dialog_before_the_rescan_starts() {
     let mut r = rig();
     r.select("small");
     r.chars("d");
-    let p = r.dir.path().join("small");
-    std::fs::remove_dir_all(&p).unwrap();
-    std::fs::create_dir(&p).unwrap();
+    replace_with_new_folder(&r.dir.path().join("small"));
     r.chars("y");
     r.until("not deleted", |r| {
         matches!(r.dialog(), Some(Dialog::DeleteAborted(_)))

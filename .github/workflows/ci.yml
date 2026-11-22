@@ -36,7 +36,7 @@ jobs:
       - name: Build
         run: cargo build --release --locked
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
       - name: Package
         run: cargo package --locked
 
